@@ -1,0 +1,18 @@
+# wsl-dash configuration.
+#
+# Copy to wsl-dash.toml and edit. The copy is gitignored: producer commands
+# contain your own paths.
+
+# 0.0.0.0 is required, not a default worth changing. WSL2's localhost relay
+# only forwards Windows-side connections to a listener bound on all interfaces;
+# a 127.0.0.1 bind is invisible from Windows.
+host = "0.0.0.0"
+port = 8781
+
+# Each producer is a command that prints JSON to stdout. It runs on its own
+# timer, so a widget refresh reads cache and never waits for the command.
+[[producer]]
+name = "fumes"
+command = "uv run --project ~/projects/fumes ~/projects/fumes/fumes.py --json"
+interval = 300   # seconds; fumes calls an undocumented API, so don't be greedy
+timeout = 30

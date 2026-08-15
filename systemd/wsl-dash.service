@@ -1,0 +1,24 @@
+[Unit]
+Description=wsl-dash (serve WSL-side data to Windows desktop widgets)
+# No After=network.target: that target belongs to the system manager, and this
+# is a --user unit. The daemon binds a local port only.
+
+[Service]
+# A systemd --user unit already runs as the owning user, and %h is that user's
+# home, so nothing here hardcodes a username.
+WorkingDirectory=%h/projects/wsl-dash
+# A systemd --user unit does NOT inherit your shell's PATH, so anything you
+# installed into ~/.local/bin (uv, pipx shims, cargo binaries) is invisible and
+# producer commands die with "not found". This is the single most likely reason
+# a producer that works in your terminal fails under the service.
+Environment=PATH=%h/.local/bin:%h/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+# Plain python3, not a venv: wsl-dash has no dependencies on purpose. Producer
+# commands bring their own environments — the fumes producer shells out to
+# `uv run --project`, which builds fumes' venv from its own lockfile.
+ExecStart=/usr/bin/python3 %h/projects/wsl-dash/wsl_dash.py serve
+Restart=on-failure
+RestartSec=2
+
+[Install]
+# default.target is the user manager's equivalent of multi-user.target.
+WantedBy=default.target

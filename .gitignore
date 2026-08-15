@@ -1,0 +1,9 @@
+# Your producer list — contains your own paths and which tools you happen to run
+wsl-dash.toml
+
+# Virtual environment (created by uv)
+.venv/
+
+__pycache__/
+*.pyc
+*.egg-info/
