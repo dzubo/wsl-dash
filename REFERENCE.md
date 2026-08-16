@@ -84,14 +84,17 @@ Account=claude
 Measure=WebParser
 Url=[mData]
 RegExp=(?<=\ndata\.by_account\.#Account#\.records\.0\.pct=)[^\n]*
+StringIndex=1
 ```
 
-This exists because a regex engine cannot select "the rows where
-`account=claude`" any more than it can subtract two timestamps. Records whose
-key field is missing, or whose value can't be a key segment (containing a `.`,
-whitespace, or `=`; or not a scalar) are skipped and logged once, not silently
-dropped — the consumer's failure mode is an empty panel, which is
-indistinguishable from "no data".
+`StringIndex=1` is not optional — without it a child WebParser measure returns
+nothing (see below). This exists because a regex engine cannot select "the rows
+where `account=claude`" any more than it can subtract two timestamps. Records
+whose key field is missing, or whose value isn't a plain identifier (an
+alphanumeric followed by alphanumerics, `_` or `-`, matching the account-name
+rule in `fumes`) are skipped and logged once, not silently dropped — the
+consumer's failure mode is an empty panel, which is indistinguishable from "no
+data".
 
 `index_by` affects `/p/<name>.txt` only. `/p/<name>.json` stays a faithful
 passthrough of the producer, exactly as the existing derived fields
