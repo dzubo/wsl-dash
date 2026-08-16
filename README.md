@@ -4,8 +4,8 @@
 
 A daemon runs commands inside WSL on a schedule, caches the JSON they print,
 and serves it over HTTP where a Windows widget can read it. Ships with a
-Rainmeter skin that shows remaining AI provider limits via
-[`fumes`](https://github.com/dzubo/fumes).
+[Rainmeter](https://www.rainmeter.net/) skin that shows remaining AI provider
+limits via [`fumes`](https://github.com/dzubo/fumes).
 
 Rainmeter's WebParser can't parse JSON, so each producer is also served as flat
 `key=value` lines — the format a widget can actually read. See
