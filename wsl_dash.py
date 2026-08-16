@@ -41,7 +41,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.1.0"
+VERSION = "0.0.1"
 DEFAULT_CONFIG = Path(__file__).with_name("wsl-dash.toml")
 
 # 0.0.0.0, not 127.0.0.1, and this is load-bearing: WSL2's localhost relay only
