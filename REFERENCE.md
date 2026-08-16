@@ -24,7 +24,7 @@ so a widget refresh reads cache and never waits for the command.
 The flat form turns a nested document into something a two-line regex can read:
 
 ```
-#wsl-dash
+#wsl-dash 1
 producer=fumes
 ok=1
 age_seconds=8
@@ -43,8 +43,59 @@ a countdown is the most common thing a dashboard wants and the one thing a regex
 engine cannot derive for itself. Lists gain a `.count` so a skin can hide the
 rows it has no data for.
 
-The file opens with a `#wsl-dash` comment line so every key line is preceded by
-a newline — `\nkey=` anchors work on the first line as safely as on any other.
+The file opens with a `#wsl-dash 1` comment line so every key line is preceded
+by a newline — `\nkey=` anchors work on the first line as safely as on any
+other. The `1` is a **contract marker**: it bumps only when a change breaks the
+flattening rules (renaming the `data.` prefix, changing how lists flatten) —
+never on additions like `index_by` or new derived fields. A widget can read the
+first line to tell "the shape changed, update me" from "the network failed".
+
+## `index_by`
+
+A producer can also index a list of objects by one of its fields:
+
+```toml
+[[producer]]
+name = "fumes"
+command = "..."
+index_by = "records:account"   # <list key>:<field>
+```
+
+For a `records` list whose items carry an `account` field, the `.txt` form gains
+a sibling map alongside the positional `data.records.N.*` keys (which are left
+untouched):
+
+```
+data.by_account.claude.records.count=2
+data.by_account.claude.records.0.label=5-hour session
+data.by_account.claude.records.0.pct=61.0
+data.by_account.opencode.records.count=1
+data.by_account.opencode.records.0.label=go 5-hour
+```
+
+A widget then reads a **static** path with the key as a plain `#Variable#` — no
+`DynamicVariables`, no computed indices:
+
+```ini
+[Variables]
+Account=claude
+
+[mR0Pct]
+Measure=WebParser
+Url=[mData]
+RegExp=(?<=\ndata\.by_account\.#Account#\.records\.0\.pct=)[^\n]*
+```
+
+This exists because a regex engine cannot select "the rows where
+`account=claude`" any more than it can subtract two timestamps. Records whose
+key field is missing, or whose value can't be a key segment (containing a `.`,
+whitespace, or `=`; or not a scalar) are skipped and logged once, not silently
+dropped — the consumer's failure mode is an empty panel, which is
+indistinguishable from "no data".
+
+`index_by` affects `/p/<name>.txt` only. `/p/<name>.json` stays a faithful
+passthrough of the producer, exactly as the existing derived fields
+(`_in_seconds`, `_in`) are flat-form-only.
 
 ## Architecture
 
@@ -64,11 +115,40 @@ name = "fumes"
 command = "uv run --project ~/projects/fumes ~/projects/fumes/fumes.py --json"
 interval = 300
 timeout = 30
+# index_by = "records:account"   # optional; see "index_by" above
 ```
 
 `host = "0.0.0.0"` is **required**, not a default worth changing: WSL2's
 localhost relay only forwards Windows-side connections to a listener bound on
 all interfaces. A `127.0.0.1` bind is invisible from Windows.
+
+`index_by` takes a single `<list key>:<field>` spec. Multiple indexes are out of
+scope — make it a list later if it is ever needed.
+
+## Versioning
+
+The three version numbers in play are independent, and that is a decision
+rather than an oversight:
+
+| Version | What it measures |
+|---|---|
+| `wsl_dash.py` `VERSION` | the daemon and its HTTP surface |
+| a producer's own `VERSION` (e.g. `fumes`) | that producer's releases, opaque to wsl-dash |
+| skin `[Metadata] Version` | one widget's presentation |
+
+They measure different things, and coupling them would mean bumping one project
+because another shipped. A fumes release that adds a field must not oblige a
+wsl-dash bump, and a skin redesign must not oblige either. wsl-dash never
+imports a producer — it runs a shell string from the user's config and knows
+nothing about the data's meaning by design — so there is no version constraint
+to introduce between them.
+
+What replaces a pin is the `#wsl-dash 1` contract marker plus feature detection:
+a consumer should read the key it needs and fall back if it is empty, exactly as
+the skin substitutes `"^$"` for absent values. Any minimum-version statement
+(e.g. "this skin needs wsl-dash ≥ X") belongs in prose in a README, addressed to
+a human deciding whether to upgrade — never in a machine-checked constraint,
+because nothing here resolves one.
 
 ## Things that will bite you
 
