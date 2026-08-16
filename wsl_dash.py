@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 import threading
@@ -65,6 +66,10 @@ class Producer:
     command: str
     interval: int = DEFAULT_INTERVAL
     timeout: int = DEFAULT_TIMEOUT
+    # Parsed from the `index_by = "list_key:field"` config option: the dotted
+    # path to a list under the data root, and the field of each item whose value
+    # becomes the key. None when the producer isn't indexed.
+    index_by: tuple[str, str] | None = None
 
     # Latest result, guarded by `lock`.
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
@@ -121,8 +126,49 @@ def load_config(path: Path) -> Config:
             command=command,
             interval=int(entry.get("interval", DEFAULT_INTERVAL)),
             timeout=int(entry.get("timeout", DEFAULT_TIMEOUT)),
+            index_by=parse_index_by(name, entry.get("index_by")),
         )
     return cfg
+
+
+def parse_index_by(name: str, spec: object) -> tuple[str, str] | None:
+    """Turn the `index_by` config value into a (list_key, field) pair.
+
+    The format is "<list key>:<field>", e.g. "records:account". The list key is
+    a dotted path under the data root; the field is the name of a scalar field on
+    each list item. Malformed specs are config errors and stop startup, because
+    a bad spec can never produce data and would otherwise fail silently on every
+    run.
+    """
+    if spec is None:
+        return None
+    if not isinstance(spec, str) or ":" not in spec:
+        sys.exit(
+            f"wsl-dash: producer {name!r} index_by must be \"list_key:field\", "
+            f"got {spec!r}"
+        )
+    list_key, _, field = spec.partition(":")
+    if not list_key or not field or ":" in field:
+        sys.exit(
+            f"wsl-dash: producer {name!r} index_by must be \"list_key:field\" "
+            f"with a non-empty key and field, got {spec!r}"
+        )
+    # Both halves become key-path segments, so reject the characters that would
+    # break the flat form's `\\nkey=` anchoring before the producer ever runs.
+    # The list key is a dotted path (`.` is its separator, so it is allowed
+    # there); the field is a single name, so a `.` in it would instead be
+    # accepted and then silently index nothing on every run.
+    if any(ch.isspace() or ch == "=" for ch in list_key):
+        sys.exit(
+            f"wsl-dash: producer {name!r} index_by list key must not contain "
+            f"whitespace or '=', got {list_key!r}"
+        )
+    if any(ch.isspace() or ch in ".=" for ch in field):
+        sys.exit(
+            f"wsl-dash: producer {name!r} index_by field must not contain "
+            f"'.', '=' or whitespace, got {field!r}"
+        )
+    return list_key, field
 
 
 # --------------------------------------------------------------------------- #
@@ -167,6 +213,13 @@ def run_producer(p: Producer) -> None:
         p.error = error
         p.data = data
         p.raw = stdout
+
+    # An indexed producer's problems are a property of the data, so they are
+    # logged here — once per run — not on every `.txt` request, which would fill
+    # the journal the way the request logger is deliberately silent to avoid.
+    if p.index_by is not None and data is not None:
+        for problem in group_indexed(p, data)[1]:
+            log(problem)
 
     status = "ok" if p.ok else f"FAIL ({error[:80]})"
     log(f"{p.name}: {status} in {time.time() - started:.2f}s")
@@ -227,6 +280,36 @@ def scalar(value: Any) -> str:
     return json.dumps(value)
 
 
+# The only characters a bucket key may contain. This is an allowlist, not a
+# denylist: a key must be writable literally into the static regex a widget uses
+# to read it, so anything regex- or Rainmeter-special (`+`, `#`, `(`, `)`, ...)
+# is excluded rather than enumerated. It mirrors the account-name rule upstream
+# in dzubo/fumes#1, so the same value indexes the same way in both projects.
+SAFE_INDEX_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+
+
+def index_key(value: Any) -> str | None:
+    """Render an indexed field's value as a key-path segment, or None if unsafe.
+
+    The value becomes a key path segment a widget must write literally into a
+    static regex, so it is held to `SAFE_INDEX_KEY`: an initial alphanumeric
+    followed by alphanumerics, `_` or `-`. Anything else — `.`, `=`, whitespace,
+    or a regex/Rainmeter metacharacter — either reads as another level or can
+    never be matched by the documented pattern, so it is rejected. A missing,
+    boolean, or non-scalar value can't be a key either; the caller logs and skips
+    those rather than emitting a key that silently can't be matched.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        s = str(value)
+    elif isinstance(value, str):
+        s = value
+    else:
+        return None
+    return s if SAFE_INDEX_KEY.match(s) else None
+
+
 def flatten(value: Any, prefix: str, out: list[tuple[str, str]], now: datetime) -> None:
     """
     Flatten nested JSON to key=value pairs.
@@ -254,13 +337,85 @@ def flatten(value: Any, prefix: str, out: list[tuple[str, str]], now: datetime) 
                 out.append((f"{prefix}_in", humanize(delta)))
 
 
+def group_indexed(
+    p: Producer, data: Any
+) -> tuple[dict[str, list[Any]] | None, list[str]]:
+    """
+    Group an indexed list's items by their key field.
+
+    Returns the buckets (keyed by field value) and a list of human-readable
+    problems — the named list missing or not a list, records missing the field,
+    or records whose value can't be a key. Problems are returned rather than
+    logged so the caller decides when to surface them: once per producer run,
+    not once per HTTP request.
+    """
+    list_key, field = p.index_by
+    node = data
+    for part in list_key.split("."):
+        if not isinstance(node, dict) or part not in node:
+            return None, [
+                f"{p.name}: index_by {list_key!r} not found in data; no indexed keys"
+            ]
+        node = node[part]
+    if not isinstance(node, list):
+        return None, [
+            f"{p.name}: index_by {list_key!r} is not a list; no indexed keys"
+        ]
+
+    buckets: dict[str, list[Any]] = {}
+    missing = 0
+    unsafe = 0
+    for item in node:
+        if not isinstance(item, dict) or field not in item:
+            missing += 1
+            continue
+        key = index_key(item[field])
+        if key is None:
+            unsafe += 1
+            continue
+        buckets.setdefault(key, []).append(item)
+
+    problems: list[str] = []
+    if missing or unsafe:
+        problems.append(
+            f"{p.name}: index_by {list_key!r}:{field!r} skipped "
+            f"{missing} record(s) missing the field and {unsafe} with an unsafe key"
+        )
+    return buckets, problems
+
+
+def flatten_indexed(
+    p: Producer, data: Any, out: list[tuple[str, str]], now: datetime
+) -> None:
+    """
+    Emit the `data.by_<field>.<value>...` sibling keys for an indexed producer.
+
+    Each list item is re-flattened under `data.by_<field>.<value>.<list key>.<i>`
+    so a widget can read one bucket with a static regex and a `#Value#` variable,
+    instead of having to compute where a given value's rows start. The original
+    positional `data.<list key>.N.*` keys are untouched — this is purely additive.
+    """
+    list_key, field = p.index_by
+    buckets, _ = group_indexed(p, data)
+    if buckets is None:
+        return
+    for key, items in buckets.items():
+        prefix = f"data.by_{field}.{key}.{list_key}"
+        out.append((f"{prefix}.count", str(len(items))))
+        for i, item in enumerate(items):
+            flatten(item, f"{prefix}.{i}", out, now)
+
+
 def render_txt(p: Producer, snap: dict, now: datetime) -> str:
     """
     The flat form.
 
-    Opens with a comment line so that every key line is preceded by a newline —
-    which lets a widget anchor its regex on `\\nkey=` and match the first line as
-    safely as any other.
+    Opens with a `#wsl-dash 1` comment line so that every key line is preceded by
+    a newline — which lets a widget anchor its regex on `\\nkey=` and match the
+    first line as safely as any other. The `1` is a contract marker: it bumps
+    only when a change breaks the flattening rules (say, renaming the `data.`
+    prefix or changing how lists flatten), never on additions like `index_by`.
+    A widget can read it to tell "the shape changed" from "the network failed".
     """
     age = -1 if snap["ran_at"] is None else int(time.time() - snap["ran_at"])
     pairs: list[tuple[str, str]] = [
@@ -275,7 +430,9 @@ def render_txt(p: Producer, snap: dict, now: datetime) -> str:
     ]
     if snap["data"] is not None:
         flatten(snap["data"], "data", pairs, now)
-    lines = ["#wsl-dash"] + [f"{k}={v}" for k, v in pairs]
+        if p.index_by is not None:
+            flatten_indexed(p, snap["data"], pairs, now)
+    lines = ["#wsl-dash 1"] + [f"{k}={v}" for k, v in pairs]
     return "\n".join(lines) + "\n"
 
 
