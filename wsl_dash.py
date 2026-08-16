@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 import threading
@@ -152,6 +153,21 @@ def parse_index_by(name: str, spec: object) -> tuple[str, str] | None:
             f"wsl-dash: producer {name!r} index_by must be \"list_key:field\" "
             f"with a non-empty key and field, got {spec!r}"
         )
+    # Both halves become key-path segments, so reject the characters that would
+    # break the flat form's `\\nkey=` anchoring before the producer ever runs.
+    # The list key is a dotted path (`.` is its separator, so it is allowed
+    # there); the field is a single name, so a `.` in it would instead be
+    # accepted and then silently index nothing on every run.
+    if any(ch.isspace() or ch == "=" for ch in list_key):
+        sys.exit(
+            f"wsl-dash: producer {name!r} index_by list key must not contain "
+            f"whitespace or '=', got {list_key!r}"
+        )
+    if any(ch.isspace() or ch in ".=" for ch in field):
+        sys.exit(
+            f"wsl-dash: producer {name!r} index_by field must not contain "
+            f"'.', '=' or whitespace, got {field!r}"
+        )
     return list_key, field
 
 
@@ -264,14 +280,24 @@ def scalar(value: Any) -> str:
     return json.dumps(value)
 
 
+# The only characters a bucket key may contain. This is an allowlist, not a
+# denylist: a key must be writable literally into the static regex a widget uses
+# to read it, so anything regex- or Rainmeter-special (`+`, `#`, `(`, `)`, ...)
+# is excluded rather than enumerated. It mirrors the account-name rule upstream
+# in dzubo/fumes#1, so the same value indexes the same way in both projects.
+SAFE_INDEX_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+
+
 def index_key(value: Any) -> str | None:
     """Render an indexed field's value as a key-path segment, or None if unsafe.
 
-    The value becomes a key path segment, so it must not contain a `.` (which
-    would read as another level), `=` (which would break one-key-per-line), or
-    any whitespace. A missing, empty, boolean, or non-scalar value can't be a key
-    either; the caller logs and skips those rather than emitting a key that
-    silently can't be matched.
+    The value becomes a key path segment a widget must write literally into a
+    static regex, so it is held to `SAFE_INDEX_KEY`: an initial alphanumeric
+    followed by alphanumerics, `_` or `-`. Anything else — `.`, `=`, whitespace,
+    or a regex/Rainmeter metacharacter — either reads as another level or can
+    never be matched by the documented pattern, so it is rejected. A missing,
+    boolean, or non-scalar value can't be a key either; the caller logs and skips
+    those rather than emitting a key that silently can't be matched.
     """
     if value is None or isinstance(value, bool):
         return None
@@ -281,9 +307,7 @@ def index_key(value: Any) -> str | None:
         s = value
     else:
         return None
-    if not s or any(ch.isspace() or ch in ".=" for ch in s):
-        return None
-    return s
+    return s if SAFE_INDEX_KEY.match(s) else None
 
 
 def flatten(value: Any, prefix: str, out: list[tuple[str, str]], now: datetime) -> None:
