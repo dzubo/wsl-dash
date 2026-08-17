@@ -86,7 +86,10 @@ copy_once() {
     local d
     for d in "$dest"/WslDash/*/; do
         [[ -d "$d" ]] || continue
-        [[ -e "$repo_skin/WslDash/$(basename "$d")" ]] || rm -rf "$d"
+        if [[ ! -e "$repo_skin/WslDash/$(basename "$d")" ]]; then
+            echo "pruned $(basename "$d")"
+            rm -rf "$d"
+        fi
     done
     echo "deployed $(find "$repo_skin" -type f | wc -l) file(s) -> $dest"
 }

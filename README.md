@@ -48,9 +48,11 @@ account — `WslDash\Fumes-opencode`, `WslDash\Fumes-claude`,
 The per-account skins read the `data.by_account.*` keys, so `wsl-dash.toml`
 needs `index_by = "records:account"` on the `fumes` producer (the example
 already has it) and wsl-dash ≥ 0.1.0. Each account is a skin folder; after
-adding a new account, copy the closest existing skin, set its `Account` and
-`Provider` variables, and run `!RefreshApp` so Rainmeter discovers the new
-folder.
+adding a new account, copy the closest existing skin in the repo's
+`skin/WslDash/`, set its `Account` and `Provider` variables, and run
+`!RefreshApp` so Rainmeter discovers the new folder. Add it in the repo, not
+in Rainmeter's Skins folder — `deploy.sh` mirrors `skin/` and prunes `WslDash`
+folders it doesn't find there.
 
 ### As a service
 

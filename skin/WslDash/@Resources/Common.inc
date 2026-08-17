@@ -154,10 +154,10 @@ Substitute="^$":"0"
 
 [mHasErr]
 Measure=Calc
-Formula=[mErrCount]
+Formula=([mErrCount] > 0) ? 1 : 0
 DynamicVariables=1
 IfConditionMode=1
-IfCondition=(#CURRENTSECTION# > 0)
+IfCondition=(#CURRENTSECTION# = 1)
 IfTrueAction=[!ShowMeterGroup Err]
 IfFalseAction=[!HideMeterGroup Err]
 
