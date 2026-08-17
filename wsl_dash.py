@@ -42,7 +42,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.0.1"
+VERSION = "0.1.0"
 DEFAULT_CONFIG = Path(__file__).with_name("wsl-dash.toml")
 
 # 0.0.0.0, not 127.0.0.1, and this is load-bearing: WSL2's localhost relay only
@@ -220,6 +220,12 @@ def run_producer(p: Producer) -> None:
     if p.index_by is not None and data is not None:
         for problem in group_indexed(p, data)[1]:
             log(problem)
+        # The errors index shares the same field; its problems are logged here
+        # too rather than silently dropped. Skip it when the index already
+        # targets `errors` directly, which would report each problem twice.
+        if p.index_by[0] != "errors":
+            for problem in group_errors(p, data)[1]:
+                log(problem)
 
     status = "ok" if p.ok else f"FAIL ({error[:80]})"
     log(f"{p.name}: {status} in {time.time() - started:.2f}s")
@@ -337,11 +343,36 @@ def flatten(value: Any, prefix: str, out: list[tuple[str, str]], now: datetime) 
                 out.append((f"{prefix}_in", humanize(delta)))
 
 
+def _group_by_field(
+    node: list[Any], field: str
+) -> tuple[dict[str, list[Any]], tuple[int, int]]:
+    """Group a list of objects by a scalar `field`, skipping ungroupable items.
+
+    Returns the buckets keyed by field value and a (missing, unsafe) count of
+    items that were skipped — the field absent, or its value not a safe
+    key-path segment (see `index_key`). The counts are returned rather than
+    logged so the caller decides when to surface them.
+    """
+    buckets: dict[str, list[Any]] = {}
+    missing = 0
+    unsafe = 0
+    for item in node:
+        if not isinstance(item, dict) or field not in item:
+            missing += 1
+            continue
+        key = index_key(item[field])
+        if key is None:
+            unsafe += 1
+            continue
+        buckets.setdefault(key, []).append(item)
+    return buckets, (missing, unsafe)
+
+
 def group_indexed(
     p: Producer, data: Any
 ) -> tuple[dict[str, list[Any]] | None, list[str]]:
     """
-    Group an indexed list's items by their key field.
+    Group the indexed list's items by their key field.
 
     Returns the buckets (keyed by field value) and a list of human-readable
     problems — the named list missing or not a list, records missing the field,
@@ -362,24 +393,37 @@ def group_indexed(
             f"{p.name}: index_by {list_key!r} is not a list; no indexed keys"
         ]
 
-    buckets: dict[str, list[Any]] = {}
-    missing = 0
-    unsafe = 0
-    for item in node:
-        if not isinstance(item, dict) or field not in item:
-            missing += 1
-            continue
-        key = index_key(item[field])
-        if key is None:
-            unsafe += 1
-            continue
-        buckets.setdefault(key, []).append(item)
-
+    buckets, (missing, unsafe) = _group_by_field(node, field)
     problems: list[str] = []
     if missing or unsafe:
         problems.append(
             f"{p.name}: index_by {list_key!r}:{field!r} skipped "
             f"{missing} record(s) missing the field and {unsafe} with an unsafe key"
+        )
+    return buckets, problems
+
+
+def group_errors(
+    p: Producer, data: Any
+) -> tuple[dict[str, list[Any]] | None, list[str]]:
+    """Index the producer's `errors` list by the index field.
+
+    A failed account leaves no records, so its only trace in the flat form is
+    this list. Returns (buckets, problems) like `group_indexed`: `None` when
+    there is no `errors` list to index, and an empty dict when the list exists
+    but none of its items can be keyed. Problems are returned, not logged, so
+    the caller surfaces them once per run rather than on every request.
+    """
+    field = p.index_by[1]
+    errors = data.get("errors") if isinstance(data, dict) else None
+    if not isinstance(errors, list):
+        return None, []
+    buckets, (missing, unsafe) = _group_by_field(errors, field)
+    problems: list[str] = []
+    if missing or unsafe:
+        problems.append(
+            f"{p.name}: index_by errors:{field!r} skipped {missing} error(s) "
+            f"missing the field and {unsafe} with an unsafe key"
         )
     return buckets, problems
 
@@ -394,16 +438,31 @@ def flatten_indexed(
     so a widget can read one bucket with a static regex and a `#Value#` variable,
     instead of having to compute where a given value's rows start. The original
     positional `data.<list key>.N.*` keys are untouched — this is purely additive.
+
+    A failed item leaves no rows at all, so the producer's `errors` list (when
+    present) is indexed under the same field too. That gives a widget a static
+    path to its own failure — `data.by_<field>.<value>.errors.0.message` — instead
+    of having to search the positional `data.errors.N.*` keys for the one naming
+    it. Skipped when the index already targets `errors` directly, which would
+    emit every key twice.
     """
     list_key, field = p.index_by
     buckets, _ = group_indexed(p, data)
-    if buckets is None:
-        return
-    for key, items in buckets.items():
-        prefix = f"data.by_{field}.{key}.{list_key}"
-        out.append((f"{prefix}.count", str(len(items))))
-        for i, item in enumerate(items):
-            flatten(item, f"{prefix}.{i}", out, now)
+    if buckets is not None:
+        for key, items in buckets.items():
+            prefix = f"data.by_{field}.{key}.{list_key}"
+            out.append((f"{prefix}.count", str(len(items))))
+            for i, item in enumerate(items):
+                flatten(item, f"{prefix}.{i}", out, now)
+
+    if list_key != "errors":
+        error_buckets, _ = group_errors(p, data)
+        if error_buckets is not None:
+            for key, items in error_buckets.items():
+                prefix = f"data.by_{field}.{key}.errors"
+                out.append((f"{prefix}.count", str(len(items))))
+                for i, item in enumerate(items):
+                    flatten(item, f"{prefix}.{i}", out, now)
 
 
 def render_txt(p: Producer, snap: dict, now: datetime) -> str:

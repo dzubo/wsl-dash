@@ -14,6 +14,10 @@
 #
 # After a copy, refresh Rainmeter to pick up structural changes:
 #   "/mnt/c/Program Files/Rainmeter/Rainmeter.exe" !RefreshApp
+#
+# deploy.sh mirrors the repo's skin tree: it copies new files and removes skins
+# under WslDash that no longer exist in the repo (scoped to WslDash, so your
+# other skins are never touched).
 
 set -euo pipefail
 
@@ -75,6 +79,18 @@ fi
 
 copy_once() {
     cp -r "$repo_skin"/. "$dest"/
+    # Prune skins that were retired from the repo (e.g. the old single-panel
+    # Fumes) so a stale copy doesn't keep running next to the new ones. Scoped
+    # to the WslDash config: $dest is the SkinPath root, which also holds the
+    # user's other skins (illustro, ...), so those must never be touched.
+    local d
+    for d in "$dest"/WslDash/*/; do
+        [[ -d "$d" ]] || continue
+        if [[ ! -e "$repo_skin/WslDash/$(basename "$d")" ]]; then
+            echo "pruned $(basename "$d")"
+            rm -rf "$d"
+        fi
+    done
     echo "deployed $(find "$repo_skin" -type f | wc -l) file(s) -> $dest"
 }
 

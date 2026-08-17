@@ -73,6 +73,34 @@ data.by_account.opencode.records.count=1
 data.by_account.opencode.records.0.label=go 5-hour
 ```
 
+The same index covers the producer's `errors` list when it has one, so a widget
+can read its own failure instead of searching the positional `data.errors.N.*`
+keys for the one that names it:
+
+```
+data.by_account.claude.errors.count=1
+data.by_account.claude.errors.0.message=HTTP 429 from https://api.anthropic.com
+```
+
+A failed account leaves no records, so this `errors` bucket is its only trace in
+the flat form — the thing that distinguishes "HTTP 429" from "no limits
+configured". Two caveats:
+
+- **The producer must still exit 0.** A non-zero exit means "producer failed":
+  wsl-dash serves only `ok`, `exit_code` and `error`, and none of the `data.*`
+  keys — including the errors index — are emitted. `fumes` currently exits 1
+  when *every* account fails, so a total outage collapses the per-account skins
+  to a bare header; a single-account failure (the common case) still renders.
+- **An account is expected to have records *or* an error, never both.** The
+  per-account skin sizes its panel for one or the other, so a producer that
+  emits both for one account would draw them on top of each other. Today's
+  `fumes` raises before emitting both.
+
+The skins also read three fields this section does not otherwise name:
+`records[].unit` and `records[].used` (the spend line; shown only when `unit` is
+`usd`) and `errors[].account`/`errors[].message` (the error line). If a producer
+does not emit those, the two lines silently never appear.
+
 A widget then reads a **static** path with the key as a plain `#Variable#` — no
 `DynamicVariables`, no computed indices:
 
@@ -118,7 +146,7 @@ name = "fumes"
 command = "uv run --project ~/projects/fumes ~/projects/fumes/fumes.py --json"
 interval = 300
 timeout = 30
-# index_by = "records:account"   # optional; see "index_by" above
+index_by = "records:account"   # optional; see "index_by" above
 ```
 
 `host = "0.0.0.0"` is **required**, not a default worth changing: WSL2's
@@ -227,7 +255,7 @@ intended opacity. If a translucent panel is ever wanted, lower `cPanel`'s alpha
 in the skin instead, so the choice ships and stays visible next to its
 rationale.
 
-## Visual design notes (v0.2)
+## Visual design notes
 
 The first cut was correct and ugly. Three causes, worth remembering:
 
@@ -250,6 +278,11 @@ rather than a zero one.
 ## Writing your own widget
 
 Add a producer to `wsl-dash.toml`, restart, and check `/p/<name>.txt` to see
-your key names. Then copy `skin/WslDash/Fumes/Fumes.ini` and change the
-lookbehinds. The row blocks are unrolled because Rainmeter has no loops; to show
-more rows, copy the last block and bump every index in it.
+your key names. Then copy a `Fumes-<account>` skin folder and change the
+lookbehinds. The shared foundation is `@Resources/Common.inc` (palette, geometry,
+the download) and `@Resources/Rows.inc` (the unrolled row blocks, keyed on the
+skin's `#Account#` variable); a per-account skin is just a few variables and two
+`@Include` lines. The row blocks are unrolled because Rainmeter has no loops;
+`Rows.inc` is six copies of the same block, so edit row 0 and propagate the edit
+to rows 1-5. To show more rows, copy the last block, bump every index in it, and
+raise `MaxRows` in `Common.inc`.
