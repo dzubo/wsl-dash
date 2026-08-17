@@ -220,6 +220,12 @@ def run_producer(p: Producer) -> None:
     if p.index_by is not None and data is not None:
         for problem in group_indexed(p, data)[1]:
             log(problem)
+        # The errors index shares the same field; its problems are logged here
+        # too rather than silently dropped. Skip it when the index already
+        # targets `errors` directly, which would report each problem twice.
+        if p.index_by[0] != "errors":
+            for problem in group_errors(p, data)[1]:
+                log(problem)
 
     status = "ok" if p.ok else f"FAIL ({error[:80]})"
     log(f"{p.name}: {status} in {time.time() - started:.2f}s")
@@ -397,6 +403,31 @@ def group_indexed(
     return buckets, problems
 
 
+def group_errors(
+    p: Producer, data: Any
+) -> tuple[dict[str, list[Any]] | None, list[str]]:
+    """Index the producer's `errors` list by the index field.
+
+    A failed account leaves no records, so its only trace in the flat form is
+    this list. Returns (buckets, problems) like `group_indexed`: `None` when
+    there is no `errors` list to index, and an empty dict when the list exists
+    but none of its items can be keyed. Problems are returned, not logged, so
+    the caller surfaces them once per run rather than on every request.
+    """
+    field = p.index_by[1]
+    errors = data.get("errors") if isinstance(data, dict) else None
+    if not isinstance(errors, list):
+        return None, []
+    buckets, (missing, unsafe) = _group_by_field(errors, field)
+    problems: list[str] = []
+    if missing or unsafe:
+        problems.append(
+            f"{p.name}: index_by errors:{field!r} skipped {missing} error(s) "
+            f"missing the field and {unsafe} with an unsafe key"
+        )
+    return buckets, problems
+
+
 def flatten_indexed(
     p: Producer, data: Any, out: list[tuple[str, str]], now: datetime
 ) -> None:
@@ -412,7 +443,8 @@ def flatten_indexed(
     present) is indexed under the same field too. That gives a widget a static
     path to its own failure — `data.by_<field>.<value>.errors.0.message` — instead
     of having to search the positional `data.errors.N.*` keys for the one naming
-    it.
+    it. Skipped when the index already targets `errors` directly, which would
+    emit every key twice.
     """
     list_key, field = p.index_by
     buckets, _ = group_indexed(p, data)
@@ -423,14 +455,14 @@ def flatten_indexed(
             for i, item in enumerate(items):
                 flatten(item, f"{prefix}.{i}", out, now)
 
-    errors = data.get("errors") if isinstance(data, dict) else None
-    if isinstance(errors, list):
-        error_buckets, _ = _group_by_field(errors, field)
-        for key, items in error_buckets.items():
-            prefix = f"data.by_{field}.{key}.errors"
-            out.append((f"{prefix}.count", str(len(items))))
-            for i, item in enumerate(items):
-                flatten(item, f"{prefix}.{i}", out, now)
+    if list_key != "errors":
+        error_buckets, _ = group_errors(p, data)
+        if error_buckets is not None:
+            for key, items in error_buckets.items():
+                prefix = f"data.by_{field}.{key}.errors"
+                out.append((f"{prefix}.count", str(len(items))))
+                for i, item in enumerate(items):
+                    flatten(item, f"{prefix}.{i}", out, now)
 
 
 def render_txt(p: Producer, snap: dict, now: datetime) -> str:

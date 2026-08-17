@@ -38,9 +38,12 @@ Deploy the skin and load it:
 
 `deploy.sh` reads the real skins path out of `Rainmeter.ini` rather than
 guessing — Windows often redirects `Documents` into OneDrive. Use `--watch` to
-re-copy on every edit. In Rainmeter, refresh, then load one skin per account —
-`WslDash\Fumes-opencode`, `WslDash\Fumes-claude`, `WslDash\Fumes-claude-a`,
-one window per account.
+re-copy on every edit. It also prunes `WslDash` skins that no longer exist in
+the repo (scoped to `WslDash`, so your other skins are untouched) — if you
+still have the retired single-panel `WslDash\Fumes` loaded, it disappears after
+the next deploy. In Rainmeter, run `!RefreshApp`, then load one skin per
+account — `WslDash\Fumes-opencode`, `WslDash\Fumes-claude`,
+`WslDash\Fumes-claude-a`, one window per account.
 
 The per-account skins read the `data.by_account.*` keys, so `wsl-dash.toml`
 needs `index_by = "records:account"` on the `fumes` producer (the example

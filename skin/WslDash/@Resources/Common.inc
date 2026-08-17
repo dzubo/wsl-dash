@@ -6,6 +6,12 @@
 ; per-block furniture (status dot, account name, age, hairline, panel shape,
 ; error line). The account-specific row blocks live in Rows.inc.
 ;
+; This file's [Variables] is merged into the per-skin [Variables] at the point
+; of the @Include line, and a later key wins a conflict. Account and Provider
+; sit before the @Include lines and are not defined here, so they are never
+; clobbered. To override a value defined here (RefreshSeconds, W, Face, ...),
+; put your key AFTER the @Include lines in your skin, not next to Account.
+;
 ; Keep these files ASCII: Rainmeter reads .inc as ANSI unless there is a BOM,
 ; so a UTF-8 punctuation mark renders as mojibake.
 
@@ -29,9 +35,13 @@ HeadH=40
 RowTop=48
 RowH=42
 BarInset=34
+; Height of the error line (the red rail + text) when an account fails.
+ErrH=14
 Bottom=15
-; The most rows one account can occupy before later ones are dropped. Bump this
-; and copy more blocks in Rows.inc if an account ever grows past it.
+; The most rows one account can occupy; extra rows are silently dropped (there
+; is no way to signal the truncation from a skin). Bump this and copy more
+; blocks in Rows.inc if an account ever grows past it -- the two must move
+; together.
 MaxRows=6
 
 ; Font. Segoe UI ships with Windows; swap for Inter if you have it installed.
@@ -45,6 +55,7 @@ Face=Segoe UI
 ; multiply. If a panel looks washed out, check AlphaValue before editing this.
 cPanel=24,26,32,248
 cEdge=255,255,255,26
+cRule=255,255,255,20
 cText=232,234,240
 cMuted=132,138,150
 cFaint=96,102,114
@@ -130,28 +141,40 @@ IfTrueAction2=[!SetOption Dot SolidColor #cAmber#]
 IfCondition3=(#CURRENTSECTION# = 0)
 IfTrueAction3=[!SetOption Dot SolidColor #cGreen#]
 
-; True when this account failed (has an error message). Drives the error line.
+; True when this account failed (has an error). Drives the error line. The
+; contract is one or the other: an account is expected to have either records
+; or an error, never both (today's fumes raises before emitting both).
+[mErrCount]
+Measure=WebParser
+Url=[mData]
+RegExp=(?<=\ndata\.by_account\.#Account#\.errors\.count=)[^\n]*
+StringIndex=1
+RegExpSubstitute=1
+Substitute="^$":"0"
+
 [mHasErr]
 Measure=Calc
-Formula=([mErr] <> "") ? 1 : 0
+Formula=[mErrCount]
 DynamicVariables=1
 IfConditionMode=1
-IfCondition=(#CURRENTSECTION# = 1)
+IfCondition=(#CURRENTSECTION# > 0)
 IfTrueAction=[!ShowMeterGroup Err]
 IfFalseAction=[!HideMeterGroup Err]
 
-; How many line blocks to draw: one error line, or up to MaxRows record rows,
-; or nothing for an account that is configured but has no rows.
+; How many record rows to draw: up to MaxRows, or nothing for an account that
+; is configured but has no rows.
 [mLines]
 Measure=Calc
-Formula=([mHasErr] = 1) ? 1 : (Clamp([mCount], 0, #MaxRows#))
+Formula=Clamp([mCount], 0, #MaxRows#)
 DynamicVariables=1
 
 ; The panel height follows. One Calc for the whole window, not one per row:
 ; each window holds exactly one account, so only its own height is dynamic.
+; An error line is shorter than a full row, so it sizes itself rather than
+; reusing the row formula.
 [mHeight]
 Measure=Calc
-Formula=([mLines] = 0) ? (#HeadH# + #Bottom#) : (#RowTop# + ([mLines] - 1) * #RowH# + #BarInset# + 3 + #Bottom#)
+Formula=([mHasErr] = 1) ? (#RowTop# + #ErrH# + #Bottom#) : (([mLines] = 0) ? (#HeadH# + #Bottom#) : (#RowTop# + ([mLines] - 1) * #RowH# + #BarInset# + 3 + #Bottom#))
 DynamicVariables=1
 
 ; "(provider)" shown only when it differs from the account name, matching
@@ -174,7 +197,7 @@ Meter=Shape
 X=0
 Y=0
 DynamicVariables=1
-Shape=Rectangle 0.5,0.5,343,([mHeight] - 1),10 | Fill Color #cPanel# | StrokeWidth 1 | Stroke Color #cEdge#
+Shape=Rectangle 0.5,0.5,(#W# - 1),([mHeight] - 1),10 | Fill Color #cPanel# | StrokeWidth 1 | Stroke Color #cEdge#
 
 [Dot]
 Meter=Image
@@ -226,7 +249,7 @@ X=#PAD#
 Y=#HeadH#
 W=#BarW#
 H=1
-SolidColor=255,255,255,20
+SolidColor=#cRule#
 
 ; The error line: a red rail and the account's error (e.g. "HTTP 429"). Shown
 ; by [mHasErr] only when the account failed. This is the one new colour, and it
@@ -237,7 +260,7 @@ Group=Err
 X=#PAD#
 Y=#RowTop#
 W=3
-H=14
+H=#ErrH#
 SolidColor=#cRed#
 
 [ErrText]

@@ -16,8 +16,14 @@ import contextlib
 import io
 from datetime import datetime, timezone
 
-import wsl_dash as m
-from wsl_dash import Producer, flatten_indexed, group_indexed, index_key, parse_index_by
+from wsl_dash import (
+    Producer,
+    flatten_indexed,
+    group_errors,
+    group_indexed,
+    index_key,
+    parse_index_by,
+)
 
 
 def _expect_exit(fn, *args) -> None:
@@ -127,9 +133,40 @@ def check_index_errors() -> None:
     assert not any(".errors." in k for k in dict(pairs))
 
 
+def check_group_errors() -> None:
+    p = Producer(name="x", command="c", index_by=("records", "account"))
+    data = {
+        "records": [{"account": "claude", "pct": 1}],
+        "errors": [
+            {"account": "claude-a", "message": "HTTP 429"},
+            {"account": "bad.dot", "message": "x"},  # unsafe key
+            {"message": "x"},                        # missing field
+        ],
+    }
+    buckets, problems = group_errors(p, data)
+    assert set(buckets) == {"claude-a"}, buckets
+    assert problems, "skipped errors should be reported, not silently dropped"
+
+    assert group_errors(p, {"records": []})[0] is None
+    assert group_errors(p, {"errors": "nope"})[0] is None
+
+
+def check_errors_not_double_indexed() -> None:
+    # An index that already targets "errors" must not emit the errors index a
+    # second time, or the flat form breaks its one-key-per-line contract.
+    p = Producer(name="x", command="c", index_by=("errors", "account"))
+    data = {"errors": [{"account": "claude", "message": "HTTP 429"}]}
+    pairs: list[tuple[str, str]] = []
+    flatten_indexed(p, data, pairs, datetime.now(timezone.utc))
+    keys = [k for k, _ in pairs if k == "data.by_account.claude.errors.count"]
+    assert keys == ["data.by_account.claude.errors.count"], keys
+
+
 if __name__ == "__main__":
     check_index_key()
     check_parse_index_by()
     check_group_indexed()
     check_index_errors()
+    check_group_errors()
+    check_errors_not_double_indexed()
     print("ok")

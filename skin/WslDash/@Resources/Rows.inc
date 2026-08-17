@@ -6,6 +6,10 @@
 ; because Rainmeter has no loops; to show more than MaxRows records, copy the
 ; last block and bump every index in it (and raise MaxRows in Common.inc).
 ;
+; The six blocks are identical except for the row index. When you change one,
+; change all six: edit row 0, then propagate the edit to rows 1-5 (and update
+; the copy-the-block note in REFERENCE.md if the shape changed).
+;
 ; A row is: label and percentage on top, spend and countdown beneath, bar
 ; underneath. Spend is shown only for usd rows (opencode, claude's "extra
 ; usage"); percent rows (claude's 5h/7d) leave the line empty.
@@ -44,6 +48,15 @@ Measure=WebParser
 Url=[mData]
 RegExp=(?<=\ndata\.by_account\.#Account#\.records\.0\.used=)[^\n]*
 StringIndex=1
+RegExpSubstitute=1
+Substitute="^$":"0"
+
+; Spend is a Calc, not the raw WebParser string: NumOfDecimals only applies to
+; a numeric measure, so routing through here rounds "$6.4884" to "$6.49".
+[mR0Spend]
+Measure=Calc
+Formula=[mR0Used]
+DynamicVariables=1
 
 [mR0Reset]
 Measure=WebParser
@@ -51,8 +64,6 @@ Url=[mData]
 RegExp=(?<=\ndata\.by_account\.#Account#\.records\.0\.resets_at_in=)[^\n]*
 StringIndex=1
 
-; Drives the bar, colours the row by how close to the cap, and spells out
-; "<1%" rather than rounding a live-but-tiny number down to a flat 0%.
 [mR0Calc]
 Measure=Calc
 Formula=[mR0Pct]
@@ -72,14 +83,16 @@ IfFalseAction4=[!SetOption R0Num Text "%1%"]
 IfCondition5=(#CURRENTSECTION# < 0)
 IfTrueAction5=[!SetOption R0Num Text "--"][!SetOption R0Num FontColor #cFaint#]
 
-; Hides the whole row when the account has fewer than 1 record.
+; Hides the whole row when the account has fewer than 1 record(s). The
+; unit re-check after the group show re-hides the spend line on non-usd rows,
+; which !ShowMeterGroup would otherwise re-show.
 [mR0Vis]
 Measure=Calc
 Formula=[mCount]
 DynamicVariables=1
 IfConditionMode=1
 IfCondition=(#CURRENTSECTION# > 0)
-IfTrueAction=[!ShowMeterGroup R0]
+IfTrueAction=[!ShowMeterGroup R0][!UpdateMeasure mR0Unit]
 IfFalseAction=[!HideMeterGroup R0]
 
 ; ---- row 1 ----
@@ -112,6 +125,15 @@ Measure=WebParser
 Url=[mData]
 RegExp=(?<=\ndata\.by_account\.#Account#\.records\.1\.used=)[^\n]*
 StringIndex=1
+RegExpSubstitute=1
+Substitute="^$":"0"
+
+; Spend is a Calc, not the raw WebParser string: NumOfDecimals only applies to
+; a numeric measure, so routing through here rounds "$6.4884" to "$6.49".
+[mR1Spend]
+Measure=Calc
+Formula=[mR1Used]
+DynamicVariables=1
 
 [mR1Reset]
 Measure=WebParser
@@ -138,13 +160,16 @@ IfFalseAction4=[!SetOption R1Num Text "%1%"]
 IfCondition5=(#CURRENTSECTION# < 0)
 IfTrueAction5=[!SetOption R1Num Text "--"][!SetOption R1Num FontColor #cFaint#]
 
+; Hides the whole row when the account has fewer than 2 record(s). The
+; unit re-check after the group show re-hides the spend line on non-usd rows,
+; which !ShowMeterGroup would otherwise re-show.
 [mR1Vis]
 Measure=Calc
 Formula=[mCount]
 DynamicVariables=1
 IfConditionMode=1
 IfCondition=(#CURRENTSECTION# > 1)
-IfTrueAction=[!ShowMeterGroup R1]
+IfTrueAction=[!ShowMeterGroup R1][!UpdateMeasure mR1Unit]
 IfFalseAction=[!HideMeterGroup R1]
 
 ; ---- row 2 ----
@@ -177,6 +202,15 @@ Measure=WebParser
 Url=[mData]
 RegExp=(?<=\ndata\.by_account\.#Account#\.records\.2\.used=)[^\n]*
 StringIndex=1
+RegExpSubstitute=1
+Substitute="^$":"0"
+
+; Spend is a Calc, not the raw WebParser string: NumOfDecimals only applies to
+; a numeric measure, so routing through here rounds "$6.4884" to "$6.49".
+[mR2Spend]
+Measure=Calc
+Formula=[mR2Used]
+DynamicVariables=1
 
 [mR2Reset]
 Measure=WebParser
@@ -203,13 +237,16 @@ IfFalseAction4=[!SetOption R2Num Text "%1%"]
 IfCondition5=(#CURRENTSECTION# < 0)
 IfTrueAction5=[!SetOption R2Num Text "--"][!SetOption R2Num FontColor #cFaint#]
 
+; Hides the whole row when the account has fewer than 3 record(s). The
+; unit re-check after the group show re-hides the spend line on non-usd rows,
+; which !ShowMeterGroup would otherwise re-show.
 [mR2Vis]
 Measure=Calc
 Formula=[mCount]
 DynamicVariables=1
 IfConditionMode=1
 IfCondition=(#CURRENTSECTION# > 2)
-IfTrueAction=[!ShowMeterGroup R2]
+IfTrueAction=[!ShowMeterGroup R2][!UpdateMeasure mR2Unit]
 IfFalseAction=[!HideMeterGroup R2]
 
 ; ---- row 3 ----
@@ -242,6 +279,15 @@ Measure=WebParser
 Url=[mData]
 RegExp=(?<=\ndata\.by_account\.#Account#\.records\.3\.used=)[^\n]*
 StringIndex=1
+RegExpSubstitute=1
+Substitute="^$":"0"
+
+; Spend is a Calc, not the raw WebParser string: NumOfDecimals only applies to
+; a numeric measure, so routing through here rounds "$6.4884" to "$6.49".
+[mR3Spend]
+Measure=Calc
+Formula=[mR3Used]
+DynamicVariables=1
 
 [mR3Reset]
 Measure=WebParser
@@ -268,13 +314,16 @@ IfFalseAction4=[!SetOption R3Num Text "%1%"]
 IfCondition5=(#CURRENTSECTION# < 0)
 IfTrueAction5=[!SetOption R3Num Text "--"][!SetOption R3Num FontColor #cFaint#]
 
+; Hides the whole row when the account has fewer than 4 record(s). The
+; unit re-check after the group show re-hides the spend line on non-usd rows,
+; which !ShowMeterGroup would otherwise re-show.
 [mR3Vis]
 Measure=Calc
 Formula=[mCount]
 DynamicVariables=1
 IfConditionMode=1
 IfCondition=(#CURRENTSECTION# > 3)
-IfTrueAction=[!ShowMeterGroup R3]
+IfTrueAction=[!ShowMeterGroup R3][!UpdateMeasure mR3Unit]
 IfFalseAction=[!HideMeterGroup R3]
 
 ; ---- row 4 ----
@@ -307,6 +356,15 @@ Measure=WebParser
 Url=[mData]
 RegExp=(?<=\ndata\.by_account\.#Account#\.records\.4\.used=)[^\n]*
 StringIndex=1
+RegExpSubstitute=1
+Substitute="^$":"0"
+
+; Spend is a Calc, not the raw WebParser string: NumOfDecimals only applies to
+; a numeric measure, so routing through here rounds "$6.4884" to "$6.49".
+[mR4Spend]
+Measure=Calc
+Formula=[mR4Used]
+DynamicVariables=1
 
 [mR4Reset]
 Measure=WebParser
@@ -333,13 +391,16 @@ IfFalseAction4=[!SetOption R4Num Text "%1%"]
 IfCondition5=(#CURRENTSECTION# < 0)
 IfTrueAction5=[!SetOption R4Num Text "--"][!SetOption R4Num FontColor #cFaint#]
 
+; Hides the whole row when the account has fewer than 5 record(s). The
+; unit re-check after the group show re-hides the spend line on non-usd rows,
+; which !ShowMeterGroup would otherwise re-show.
 [mR4Vis]
 Measure=Calc
 Formula=[mCount]
 DynamicVariables=1
 IfConditionMode=1
 IfCondition=(#CURRENTSECTION# > 4)
-IfTrueAction=[!ShowMeterGroup R4]
+IfTrueAction=[!ShowMeterGroup R4][!UpdateMeasure mR4Unit]
 IfFalseAction=[!HideMeterGroup R4]
 
 ; ---- row 5 ----
@@ -372,6 +433,15 @@ Measure=WebParser
 Url=[mData]
 RegExp=(?<=\ndata\.by_account\.#Account#\.records\.5\.used=)[^\n]*
 StringIndex=1
+RegExpSubstitute=1
+Substitute="^$":"0"
+
+; Spend is a Calc, not the raw WebParser string: NumOfDecimals only applies to
+; a numeric measure, so routing through here rounds "$6.4884" to "$6.49".
+[mR5Spend]
+Measure=Calc
+Formula=[mR5Used]
+DynamicVariables=1
 
 [mR5Reset]
 Measure=WebParser
@@ -398,13 +468,16 @@ IfFalseAction4=[!SetOption R5Num Text "%1%"]
 IfCondition5=(#CURRENTSECTION# < 0)
 IfTrueAction5=[!SetOption R5Num Text "--"][!SetOption R5Num FontColor #cFaint#]
 
+; Hides the whole row when the account has fewer than 6 record(s). The
+; unit re-check after the group show re-hides the spend line on non-usd rows,
+; which !ShowMeterGroup would otherwise re-show.
 [mR5Vis]
 Measure=Calc
 Formula=[mCount]
 DynamicVariables=1
 IfConditionMode=1
 IfCondition=(#CURRENTSECTION# > 5)
-IfTrueAction=[!ShowMeterGroup R5]
+IfTrueAction=[!ShowMeterGroup R5][!UpdateMeasure mR5Unit]
 IfFalseAction=[!HideMeterGroup R5]
 
 ; --------------------------------------------------------------------------
@@ -441,7 +514,7 @@ Text=%1%
 [R0Spend]
 Meter=String
 Group=R0
-MeasureName=mR0Used
+MeasureName=mR0Spend
 X=#PAD#
 Y=(#RowTop# + 17)
 FontFace=#Face#
@@ -489,7 +562,7 @@ Meter=String
 Group=R1
 MeasureName=mR1Label
 X=#PAD#
-Y=(#RowTop# + #RowH#)
+Y=(#RowTop# + 1 * #RowH#)
 FontFace=#Face#
 FontSize=10
 FontColor=#cText#
@@ -501,7 +574,7 @@ Meter=String
 Group=R1
 MeasureName=mR1Calc
 X=(#W# - #PAD#)
-Y=(#RowTop# + #RowH# - 3)
+Y=((#RowTop# + 1 * #RowH#) - 3)
 StringAlign=Right
 FontFace=#Face#
 FontSize=13
@@ -514,9 +587,9 @@ Text=%1%
 [R1Spend]
 Meter=String
 Group=R1
-MeasureName=mR1Used
+MeasureName=mR1Spend
 X=#PAD#
-Y=(#RowTop# + #RowH# + 17)
+Y=((#RowTop# + 1 * #RowH#) + 17)
 FontFace=#Face#
 FontSize=8
 FontColor=#cMuted#
@@ -529,7 +602,7 @@ Meter=String
 Group=R1
 MeasureName=mR1Reset
 X=(#W# - #PAD#)
-Y=(#RowTop# + #RowH# + 17)
+Y=((#RowTop# + 1 * #RowH#) + 17)
 StringAlign=Right
 FontFace=#Face#
 FontSize=8
@@ -541,7 +614,7 @@ Text=%1
 Meter=Image
 Group=R1
 X=#PAD#
-Y=(#RowTop# + #RowH# + #BarInset#)
+Y=((#RowTop# + 1 * #RowH#) + #BarInset#)
 W=#BarW#
 H=3
 SolidColor=#cTrack#
@@ -551,7 +624,7 @@ Meter=Bar
 Group=R1
 MeasureName=mR1Calc
 X=#PAD#
-Y=(#RowTop# + #RowH# + #BarInset#)
+Y=((#RowTop# + 1 * #RowH#) + #BarInset#)
 W=#BarW#
 H=3
 BarColor=#cGreen#
@@ -574,7 +647,7 @@ Meter=String
 Group=R2
 MeasureName=mR2Calc
 X=(#W# - #PAD#)
-Y=(#RowTop# + 2 * #RowH# - 3)
+Y=((#RowTop# + 2 * #RowH#) - 3)
 StringAlign=Right
 FontFace=#Face#
 FontSize=13
@@ -587,9 +660,9 @@ Text=%1%
 [R2Spend]
 Meter=String
 Group=R2
-MeasureName=mR2Used
+MeasureName=mR2Spend
 X=#PAD#
-Y=(#RowTop# + 2 * #RowH# + 17)
+Y=((#RowTop# + 2 * #RowH#) + 17)
 FontFace=#Face#
 FontSize=8
 FontColor=#cMuted#
@@ -602,7 +675,7 @@ Meter=String
 Group=R2
 MeasureName=mR2Reset
 X=(#W# - #PAD#)
-Y=(#RowTop# + 2 * #RowH# + 17)
+Y=((#RowTop# + 2 * #RowH#) + 17)
 StringAlign=Right
 FontFace=#Face#
 FontSize=8
@@ -614,7 +687,7 @@ Text=%1
 Meter=Image
 Group=R2
 X=#PAD#
-Y=(#RowTop# + 2 * #RowH# + #BarInset#)
+Y=((#RowTop# + 2 * #RowH#) + #BarInset#)
 W=#BarW#
 H=3
 SolidColor=#cTrack#
@@ -624,7 +697,7 @@ Meter=Bar
 Group=R2
 MeasureName=mR2Calc
 X=#PAD#
-Y=(#RowTop# + 2 * #RowH# + #BarInset#)
+Y=((#RowTop# + 2 * #RowH#) + #BarInset#)
 W=#BarW#
 H=3
 BarColor=#cGreen#
@@ -647,7 +720,7 @@ Meter=String
 Group=R3
 MeasureName=mR3Calc
 X=(#W# - #PAD#)
-Y=(#RowTop# + 3 * #RowH# - 3)
+Y=((#RowTop# + 3 * #RowH#) - 3)
 StringAlign=Right
 FontFace=#Face#
 FontSize=13
@@ -660,9 +733,9 @@ Text=%1%
 [R3Spend]
 Meter=String
 Group=R3
-MeasureName=mR3Used
+MeasureName=mR3Spend
 X=#PAD#
-Y=(#RowTop# + 3 * #RowH# + 17)
+Y=((#RowTop# + 3 * #RowH#) + 17)
 FontFace=#Face#
 FontSize=8
 FontColor=#cMuted#
@@ -675,7 +748,7 @@ Meter=String
 Group=R3
 MeasureName=mR3Reset
 X=(#W# - #PAD#)
-Y=(#RowTop# + 3 * #RowH# + 17)
+Y=((#RowTop# + 3 * #RowH#) + 17)
 StringAlign=Right
 FontFace=#Face#
 FontSize=8
@@ -687,7 +760,7 @@ Text=%1
 Meter=Image
 Group=R3
 X=#PAD#
-Y=(#RowTop# + 3 * #RowH# + #BarInset#)
+Y=((#RowTop# + 3 * #RowH#) + #BarInset#)
 W=#BarW#
 H=3
 SolidColor=#cTrack#
@@ -697,7 +770,7 @@ Meter=Bar
 Group=R3
 MeasureName=mR3Calc
 X=#PAD#
-Y=(#RowTop# + 3 * #RowH# + #BarInset#)
+Y=((#RowTop# + 3 * #RowH#) + #BarInset#)
 W=#BarW#
 H=3
 BarColor=#cGreen#
@@ -720,7 +793,7 @@ Meter=String
 Group=R4
 MeasureName=mR4Calc
 X=(#W# - #PAD#)
-Y=(#RowTop# + 4 * #RowH# - 3)
+Y=((#RowTop# + 4 * #RowH#) - 3)
 StringAlign=Right
 FontFace=#Face#
 FontSize=13
@@ -733,9 +806,9 @@ Text=%1%
 [R4Spend]
 Meter=String
 Group=R4
-MeasureName=mR4Used
+MeasureName=mR4Spend
 X=#PAD#
-Y=(#RowTop# + 4 * #RowH# + 17)
+Y=((#RowTop# + 4 * #RowH#) + 17)
 FontFace=#Face#
 FontSize=8
 FontColor=#cMuted#
@@ -748,7 +821,7 @@ Meter=String
 Group=R4
 MeasureName=mR4Reset
 X=(#W# - #PAD#)
-Y=(#RowTop# + 4 * #RowH# + 17)
+Y=((#RowTop# + 4 * #RowH#) + 17)
 StringAlign=Right
 FontFace=#Face#
 FontSize=8
@@ -760,7 +833,7 @@ Text=%1
 Meter=Image
 Group=R4
 X=#PAD#
-Y=(#RowTop# + 4 * #RowH# + #BarInset#)
+Y=((#RowTop# + 4 * #RowH#) + #BarInset#)
 W=#BarW#
 H=3
 SolidColor=#cTrack#
@@ -770,7 +843,7 @@ Meter=Bar
 Group=R4
 MeasureName=mR4Calc
 X=#PAD#
-Y=(#RowTop# + 4 * #RowH# + #BarInset#)
+Y=((#RowTop# + 4 * #RowH#) + #BarInset#)
 W=#BarW#
 H=3
 BarColor=#cGreen#
@@ -793,7 +866,7 @@ Meter=String
 Group=R5
 MeasureName=mR5Calc
 X=(#W# - #PAD#)
-Y=(#RowTop# + 5 * #RowH# - 3)
+Y=((#RowTop# + 5 * #RowH#) - 3)
 StringAlign=Right
 FontFace=#Face#
 FontSize=13
@@ -806,9 +879,9 @@ Text=%1%
 [R5Spend]
 Meter=String
 Group=R5
-MeasureName=mR5Used
+MeasureName=mR5Spend
 X=#PAD#
-Y=(#RowTop# + 5 * #RowH# + 17)
+Y=((#RowTop# + 5 * #RowH#) + 17)
 FontFace=#Face#
 FontSize=8
 FontColor=#cMuted#
@@ -821,7 +894,7 @@ Meter=String
 Group=R5
 MeasureName=mR5Reset
 X=(#W# - #PAD#)
-Y=(#RowTop# + 5 * #RowH# + 17)
+Y=((#RowTop# + 5 * #RowH#) + 17)
 StringAlign=Right
 FontFace=#Face#
 FontSize=8
@@ -833,7 +906,7 @@ Text=%1
 Meter=Image
 Group=R5
 X=#PAD#
-Y=(#RowTop# + 5 * #RowH# + #BarInset#)
+Y=((#RowTop# + 5 * #RowH#) + #BarInset#)
 W=#BarW#
 H=3
 SolidColor=#cTrack#
@@ -843,7 +916,7 @@ Meter=Bar
 Group=R5
 MeasureName=mR5Calc
 X=#PAD#
-Y=(#RowTop# + 5 * #RowH# + #BarInset#)
+Y=((#RowTop# + 5 * #RowH#) + #BarInset#)
 W=#BarW#
 H=3
 BarColor=#cGreen#

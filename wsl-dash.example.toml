@@ -18,7 +18,8 @@ interval = 300   # seconds; fumes calls an undocumented API, so don't be greedy
 timeout = 30
 # Index a list of objects by one of its fields, so a widget can read a single
 # bucket (e.g. one account's rows) with a static regex. Adds
-# data.by_account.<value>.records.* keys to the .txt form only; the .json
+# data.by_account.<value>.records.* keys (and, when the producer has an errors
+# list, data.by_account.<value>.errors.*) to the .txt form only; the .json
 # endpoint and the positional data.records.N.* keys are untouched. The shipped
 # per-account Fumes skins (Fumes-opencode, Fumes-claude, ...) read these keys,
 # so leave this on unless you write a widget that reads data.records.*.
