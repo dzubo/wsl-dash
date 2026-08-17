@@ -73,6 +73,19 @@ data.by_account.opencode.records.count=1
 data.by_account.opencode.records.0.label=go 5-hour
 ```
 
+The same index covers the producer's `errors` list when it has one, so a widget
+can read its own failure instead of searching the positional `data.errors.N.*`
+keys for the one that names it:
+
+```
+data.by_account.claude.errors.count=1
+data.by_account.claude.errors.0.message=HTTP 429 from https://api.anthropic.com
+```
+
+A failed account leaves no records, so this `errors` bucket is its only trace in
+the flat form — the thing that distinguishes "HTTP 429" from "no limits
+configured".
+
 A widget then reads a **static** path with the key as a plain `#Variable#` — no
 `DynamicVariables`, no computed indices:
 
@@ -118,7 +131,7 @@ name = "fumes"
 command = "uv run --project ~/projects/fumes ~/projects/fumes/fumes.py --json"
 interval = 300
 timeout = 30
-# index_by = "records:account"   # optional; see "index_by" above
+index_by = "records:account"   # optional; see "index_by" above
 ```
 
 `host = "0.0.0.0"` is **required**, not a default worth changing: WSL2's
@@ -250,6 +263,10 @@ rather than a zero one.
 ## Writing your own widget
 
 Add a producer to `wsl-dash.toml`, restart, and check `/p/<name>.txt` to see
-your key names. Then copy `skin/WslDash/Fumes/Fumes.ini` and change the
-lookbehinds. The row blocks are unrolled because Rainmeter has no loops; to show
-more rows, copy the last block and bump every index in it.
+your key names. Then copy a `Fumes-<account>` skin folder and change the
+lookbehinds. The shared foundation is `@Resources/Common.inc` (palette, geometry,
+the download) and `@Resources/Rows.inc` (the unrolled row blocks, keyed on the
+skin's `#Account#` variable); a per-account skin is just a few variables and two
+`@Include` lines. The row blocks are unrolled because Rainmeter has no loops; to
+show more rows, copy the last block, bump every index in it, and raise `MaxRows`
+in `Common.inc`.

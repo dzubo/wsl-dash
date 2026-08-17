@@ -17,7 +17,7 @@ import io
 from datetime import datetime, timezone
 
 import wsl_dash as m
-from wsl_dash import Producer, group_indexed, index_key, parse_index_by
+from wsl_dash import Producer, flatten_indexed, group_indexed, index_key, parse_index_by
 
 
 def _expect_exit(fn, *args) -> None:
@@ -102,8 +102,34 @@ def check_group_indexed() -> None:
     assert group_indexed(p, {"records": "nope"})[0] is None
 
 
+def check_index_errors() -> None:
+    p = Producer(name="x", command="c", index_by=("records", "account"))
+    data = {
+        "records": [{"account": "claude", "pct": 61.0}],
+        "errors": [
+            {"account": "claude-a", "provider": "claude",
+             "message": "HTTP 429 from https://api.anthropic.com"},
+        ],
+    }
+    pairs: list[tuple[str, str]] = []
+    flatten_indexed(p, data, pairs, datetime.now(timezone.utc))
+    flat = dict(pairs)
+    assert flat["data.by_account.claude.records.count"] == "1"
+    assert flat["data.by_account.claude-a.errors.count"] == "1"
+    assert (
+        flat["data.by_account.claude-a.errors.0.message"]
+        == "HTTP 429 from https://api.anthropic.com"
+    )
+    # No errors list -> only the records index is emitted.
+    pairs = []
+    flatten_indexed(p, {"records": [{"account": "claude", "pct": 1}]},
+                    pairs, datetime.now(timezone.utc))
+    assert not any(".errors." in k for k in dict(pairs))
+
+
 if __name__ == "__main__":
     check_index_key()
     check_parse_index_by()
     check_group_indexed()
+    check_index_errors()
     print("ok")

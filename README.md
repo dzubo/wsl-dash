@@ -38,7 +38,16 @@ Deploy the skin and load it:
 
 `deploy.sh` reads the real skins path out of `Rainmeter.ini` rather than
 guessing — Windows often redirects `Documents` into OneDrive. Use `--watch` to
-re-copy on every edit. In Rainmeter, refresh, then load `WslDash\Fumes`.
+re-copy on every edit. In Rainmeter, refresh, then load one skin per account —
+`WslDash\Fumes-opencode`, `WslDash\Fumes-claude`, `WslDash\Fumes-claude-a`,
+one window per account.
+
+The per-account skins read the `data.by_account.*` keys, so `wsl-dash.toml`
+needs `index_by = "records:account"` on the `fumes` producer (the example
+already has it) and wsl-dash ≥ 0.1.0. Each account is a skin folder; after
+adding a new account, copy the closest existing skin, set its `Account` and
+`Provider` variables, and run `!RefreshApp` so Rainmeter discovers the new
+folder.
 
 ### As a service
 
@@ -51,8 +60,9 @@ loginctl enable-linger "$USER"     # so it survives with no login session
 
 ## Status
 
-v0.1. One producer, one skin, deliberately. A plugin API, extra transports, a
-widget library, and `.rmskin` packaging all wait for a real second use case.
+v0.1. One producer, three per-account skins, deliberately. A plugin API, extra
+transports, a widget library, and `.rmskin` packaging all wait for a real
+second use case.
 
 ## License
 
