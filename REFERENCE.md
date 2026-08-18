@@ -282,7 +282,17 @@ your key names. Then copy a `Fumes-<account>` skin folder and change the
 lookbehinds. The shared foundation is `@Resources/Common.inc` (palette, geometry,
 the download) and `@Resources/Rows.inc` (the unrolled row blocks, keyed on the
 skin's `#Account#` variable); a per-account skin is just a few variables and two
-`@Include` lines. The row blocks are unrolled because Rainmeter has no loops;
+`@Include` lines. A third, `@Resources/Glue.inc`, is optional and included only
+by a skin that has another one beneath it: it watches this skin's own position
+and panel height and `!Move`s the config named in `GlueNext` to sit under it,
+`GlueGap` pixels down, which is what keeps the three windows reading as a
+single panel. It stacks on `[mHeight]` rather than `#CURRENTCONFIGHEIGHT#`
+deliberately — the *window* stays as tall as the full `MaxRows` block because
+the hidden row meters still extend it, so a short panel trails a stretch of
+transparent window that would otherwise show up as a gap in the stack. The chain is
+one hop per skin because `DynamicWindowSize=1` makes a panel's height depend on
+its account's row count, and a skin can only read its own height — so each skin
+positions its immediate follower rather than one skin placing all the rest. The row blocks are unrolled because Rainmeter has no loops;
 `Rows.inc` is six copies of the same block, so edit row 0 and propagate the edit
 to rows 1-5. To show more rows, copy the last block, bump every index in it, and
 raise `MaxRows` in `Common.inc`.
