@@ -45,11 +45,22 @@ the next deploy. In Rainmeter, run `!RefreshApp`, then load one skin per
 account — `WslDash\Fumes-opencode`, `WslDash\Fumes-claude`,
 `WslDash\Fumes-claude-a`, one window per account.
 
+The three windows behave as one panel. Position the top skin and the other two
+follow: each skin parks the next one directly beneath itself, so the stack
+re-forms when you drag it or when a panel grows a row (`@Resources/Glue.inc`,
+top to bottom: `opencode`, `claude`, `claude-a`; `GlueGap` sets the seam, 5px
+by default, 0 for flush). To move the stack by hand
+without one skin leading, CTRL+ALT-click any panel — all three are in the same
+`DragGroup`, so they select together and drag, or nudge with the arrow keys, as
+a unit; click outside them to deselect.
+
 The per-account skins read the `data.by_account.*` keys, so `wsl-dash.toml`
 needs `index_by = "records:account"` on the `fumes` producer (the example
 already has it) and wsl-dash ≥ 0.1.0. Each account is a skin folder; after
 adding a new account, copy the closest existing skin in the repo's
-`skin/WslDash/`, set its `Account` and `Provider` variables, and run
+`skin/WslDash/`, set its `Account` and `Provider` variables, splice it into the
+`GlueNext` chain (point the skin above it at the new config, and give the new
+skin a `GlueNext` and an `@Include3` unless it is now the bottom one), and run
 `!RefreshApp` so Rainmeter discovers the new folder. Add it in the repo, not
 in Rainmeter's Skins folder — `deploy.sh` mirrors `skin/` and prunes `WslDash`
 folders it doesn't find there.
