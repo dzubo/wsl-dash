@@ -28,6 +28,12 @@ The flat form turns a nested document into something a two-line regex can read:
 producer=fumes
 ok=1
 age_seconds=8
+age=8s
+interval=120
+base_interval=120
+quiet_runs=0
+next_run_in_seconds=112
+next_run_in=1m
 data.records.count=8
 data.records.0.account=opencode
 data.records.0.label=go 5-hour
@@ -42,6 +48,13 @@ Note the last two lines. Any value that parses as an ISO-8601 timestamp gains a
 a countdown is the most common thing a dashboard wants and the one thing a regex
 engine cannot derive for itself. Lists gain a `.count` so a skin can hide the
 rows it has no data for.
+
+The same pairing applies to the header's own durations: `age` and `next_run_in`
+are the humanized forms of `age_seconds` and `next_run_in_seconds` (`-` when
+there is no next run, as with a one-shot `wsl-dash run`). A widget should
+generally render those and reserve the raw seconds for arithmetic — with
+adaptive scheduling a quiet producer is legitimately 1750 seconds old, and four
+digits of seconds in a header reads like a fault rather than a nap.
 
 The file opens with a `#wsl-dash 1` comment line so every key line is preceded
 by a newline — `\nkey=` anchors work on the first line as safely as on any
@@ -146,7 +159,11 @@ name = "fumes"
 command = "uv run --project ~/projects/fumes ~/projects/fumes/fumes.py --json"
 interval = 300
 timeout = 30
-index_by = "records:account"   # optional; see "index_by" above
+index_by = "records:account"      # optional; see "index_by" above
+max_interval = 1800               # optional; see "Adaptive scheduling" below
+backoff = 2.0
+watch = ["records", "errors"]
+quiet_on_errors = true
 ```
 
 `host = "0.0.0.0"` is **required**, not a default worth changing: WSL2's
@@ -155,6 +172,52 @@ all interfaces. A `127.0.0.1` bind is invisible from Windows.
 
 `index_by` takes a single `<list key>:<field>` spec. Multiple indexes are out of
 scope — make it a list later if it is ever needed.
+
+## Adaptive scheduling
+
+A fixed interval has to be chosen for the busiest case and then paid for around
+the clock. `fumes` is the motivating example: one request to an undocumented
+`api.anthropic.com` endpoint per run, worth making every two minutes while
+you are burning quota, worth making far less often overnight — or while an
+account's OAuth token has been expired since lunchtime and its numbers cannot
+move by definition.
+
+`max_interval` is the switch. Without it the producer keeps a fixed timer and
+nothing below applies. With it, each run is classified:
+
+| Run | Wait |
+|---|---|
+| watched data changed, no errors | back to `interval` |
+| watched data unchanged | `× backoff`, capped at `max_interval` |
+| command failed, timed out, or printed non-JSON | `× backoff`, capped |
+| producer reported errors (`quiet_on_errors`) | `× backoff`, capped |
+
+`watch` names the dotted paths whose contents count as news — one string or a
+list of them. Leave it out and the whole payload is compared, which is right
+until a producer stamps every run with a fresh timestamp; `fumes` emits `ts`,
+so nothing would ever compare equal and the interval could never stretch. Name
+`records` and `errors` and the noise drops out. A watched path that is missing
+from the payload is logged once per run and contributes nothing, the same way an
+unresolvable `index_by` is.
+
+`quiet_on_errors` (default `true`) exists because a per-item producer's exit
+code says nothing about its items. `fumes` exits 0 when only some accounts fail
+and reports the rest in `errors`, so an expired token otherwise reads as a
+perfectly healthy run. The trade-off is bluntness — the scheduler works per
+producer, so one stuck account slows down the rows that are still moving. Set it
+`false` to buy fast rows at the cost of hammering the broken one.
+
+A failed run clears the stored fingerprint, so the run that recovers always
+counts as news: a producer that comes back does not have to earn its way down
+from the cap.
+
+Both output forms carry the state, so a consumer can tell a slow poll from a
+dead one: `interval` is the wait currently in effect, `base_interval` the
+configured floor, `quiet_runs` the number of consecutive newsless runs, and
+`next_run_in_seconds` the countdown to the next one (`-1` in the flat form when
+there is no next run, as with a one-shot `wsl-dash run`). `interval` keeping its
+name and changing to mean "in effect" is deliberate: on a fixed timer the two
+are identical, so no existing consumer sees a difference.
 
 ## Versioning
 

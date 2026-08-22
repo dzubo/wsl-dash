@@ -18,7 +18,13 @@ nesting. The flat form also carries derived fields a regex engine could never
 compute for itself — notably a countdown for every timestamp.
 
 Producers run on their own timer, not on request, so a widget refresh is always
-an instant read of cache rather than a blocking shell-out.
+an instant read of cache rather than a blocking shell-out. That timer can adapt:
+give a producer a `max_interval` and every run that brings no news — the watched
+data unchanged, the command failed, the producer still reporting the same error —
+multiplies the wait, while the first run that brings news drops it back to the
+configured `interval`. An endpoint worth polling every two minutes while you are
+working is not worth polling every two minutes overnight, or while the token it
+needs has been expired since lunchtime.
 
 Usage:
     ./wsl_dash.py serve                 # run the daemon
@@ -29,6 +35,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -42,7 +49,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 DEFAULT_CONFIG = Path(__file__).with_name("wsl-dash.toml")
 
 # 0.0.0.0, not 127.0.0.1, and this is load-bearing: WSL2's localhost relay only
@@ -53,6 +60,7 @@ DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8781
 DEFAULT_INTERVAL = 300  # generous by default; tighten per-producer in config
 DEFAULT_TIMEOUT = 30
+DEFAULT_BACKOFF = 2.0
 
 
 # --------------------------------------------------------------------------- #
@@ -71,6 +79,28 @@ class Producer:
     # becomes the key. None when the producer isn't indexed.
     index_by: tuple[str, str] | None = None
 
+    # Adaptive scheduling. `max_interval` is the switch: leave it out and the
+    # producer runs on a fixed `interval` timer, exactly as it always has. Set
+    # it and every run that brings no news multiplies the wait by `backoff` up
+    # to the cap, while the first run that does bring news drops it straight
+    # back to `interval`. The point is an endpoint you would rather not hammer:
+    # nothing changes while you are asleep, or while an account's token is
+    # expired, so nothing is worth asking for at the working-hours rate.
+    max_interval: int | None = None
+    backoff: float = DEFAULT_BACKOFF
+    # Dotted paths whose contents count as news. None compares the whole
+    # payload — which is right until a producer stamps every run with a
+    # timestamp, at which point no two runs are ever equal and the interval can
+    # never stretch. Name the paths that carry meaning (`records`, `errors`) to
+    # opt out of that.
+    watch: tuple[str, ...] | None = None
+    # Whether a producer-reported error makes a run quiet. Producers that work
+    # per-item — one row per account — exit 0 and report the broken ones in an
+    # `errors` list, so without this an expired token is invisible to the
+    # scheduler. The cost is bluntness: one stuck item slows the whole producer
+    # down even while its other items are moving, so this is a switch.
+    quiet_on_errors: bool = True
+
     # Latest result, guarded by `lock`.
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     ran_at: float | None = None
@@ -79,6 +109,17 @@ class Producer:
     error: str = ""
     data: Any = None
     raw: str = ""
+
+    # Scheduling state, guarded by `lock`. `interval_now` is the wait actually
+    # in effect and equals `interval` unless adaptive scheduling has stretched
+    # it; `fingerprint` is the digest of the last run's watched data.
+    interval_now: int = 0
+    quiet_runs: int = 0
+    fingerprint: str | None = None
+    next_run_at: float | None = None
+
+    def __post_init__(self) -> None:
+        self.interval_now = self.interval
 
     def snapshot(self) -> dict:
         with self.lock:
@@ -89,6 +130,9 @@ class Producer:
                 "error": self.error,
                 "data": self.data,
                 "raw": self.raw,
+                "interval": self.interval_now,
+                "quiet_runs": self.quiet_runs,
+                "next_run_at": self.next_run_at,
             }
 
 
@@ -121,12 +165,19 @@ def load_config(path: Path) -> Config:
             sys.exit(f"wsl-dash: a [[producer]] block is missing {exc}")
         if name in cfg.producers:
             sys.exit(f"wsl-dash: duplicate producer name {name!r}")
+        interval = int(entry.get("interval", DEFAULT_INTERVAL))
+        if interval < 1:
+            sys.exit(f"wsl-dash: producer {name!r} interval must be >= 1")
         cfg.producers[name] = Producer(
             name=name,
             command=command,
-            interval=int(entry.get("interval", DEFAULT_INTERVAL)),
+            interval=interval,
             timeout=int(entry.get("timeout", DEFAULT_TIMEOUT)),
             index_by=parse_index_by(name, entry.get("index_by")),
+            max_interval=parse_max_interval(name, entry.get("max_interval"), interval),
+            backoff=parse_backoff(name, entry.get("backoff")),
+            watch=parse_watch(name, entry.get("watch")),
+            quiet_on_errors=bool(entry.get("quiet_on_errors", True)),
         )
     return cfg
 
@@ -171,9 +222,145 @@ def parse_index_by(name: str, spec: object) -> tuple[str, str] | None:
     return list_key, field
 
 
+def parse_max_interval(name: str, spec: object, interval: int) -> int | None:
+    """Validate `max_interval`, the switch that turns adaptive scheduling on.
+
+    A cap below the base interval would mean the very first quiet run makes the
+    producer poll *faster*, which nobody wants and which is easier to reject
+    than to define. Absent, adaptive scheduling stays off.
+    """
+    if spec is None:
+        return None
+    if isinstance(spec, bool) or not isinstance(spec, int) or spec < interval:
+        sys.exit(
+            f"wsl-dash: producer {name!r} max_interval must be an integer "
+            f">= interval ({interval}), got {spec!r}"
+        )
+    return spec
+
+
+def parse_backoff(name: str, spec: object) -> float:
+    """Validate `backoff`, the multiplier applied per quiet run.
+
+    It has to exceed 1: at exactly 1 the interval never moves and the config
+    reads as if it does, which is worse than an error at startup.
+    """
+    if spec is None:
+        return DEFAULT_BACKOFF
+    if isinstance(spec, bool) or not isinstance(spec, (int, float)) or spec <= 1:
+        sys.exit(
+            f"wsl-dash: producer {name!r} backoff must be a number > 1, got {spec!r}"
+        )
+    return float(spec)
+
+
+def parse_watch(name: str, spec: object) -> tuple[str, ...] | None:
+    """Turn the `watch` config value into the dotted paths that count as news.
+
+    Accepts one string or a list of them, because naming a single path is the
+    common case and `watch = "records"` should not have to be spelled as a
+    one-item list. None means "compare the whole payload".
+    """
+    if spec is None:
+        return None
+    paths = [spec] if isinstance(spec, str) else spec
+    if not isinstance(paths, list) or not paths:
+        sys.exit(
+            f"wsl-dash: producer {name!r} watch must be a dotted path or a "
+            f"non-empty list of them, got {spec!r}"
+        )
+    for path in paths:
+        if not isinstance(path, str) or not path or any(ch.isspace() for ch in path):
+            sys.exit(
+                f"wsl-dash: producer {name!r} watch paths must be non-empty "
+                f"strings without whitespace, got {path!r}"
+            )
+    return tuple(paths)
+
+
 # --------------------------------------------------------------------------- #
 # Running producers
 # --------------------------------------------------------------------------- #
+
+
+_MISSING = object()
+
+
+def dig(data: Any, path: str) -> Any:
+    """Follow a dotted path into the data. `_MISSING` when any segment is absent."""
+    node = data
+    for part in path.split("."):
+        if not isinstance(node, dict) or part not in node:
+            return _MISSING
+        node = node[part]
+    return node
+
+
+def fingerprint(p: Producer, data: Any) -> tuple[str, list[str]]:
+    """Digest the part of `data` that counts as news, plus any problems found.
+
+    Hashed rather than kept whole because the only question ever asked of it is
+    "same as last time?", and a producer's payload has no size limit. Problems
+    are returned, not logged, so the caller surfaces them once per run — the
+    same contract as `group_indexed`.
+    """
+    problems: list[str] = []
+    if p.watch is None:
+        subject: Any = data
+    else:
+        subject = {}
+        for path in p.watch:
+            node = dig(data, path)
+            if node is _MISSING:
+                problems.append(
+                    f"{p.name}: watch {path!r} not found in data; "
+                    f"it cannot signal a change"
+                )
+                continue
+            subject[path] = node
+    blob = json.dumps(subject, sort_keys=True, default=str)
+    return hashlib.sha256(blob.encode()).hexdigest(), problems
+
+
+def has_producer_errors(data: Any) -> bool:
+    """True when the producer reported per-item failures in an `errors` list.
+
+    A producer that works item by item — one row per account — still exits 0
+    when only some of them fail, so its exit code says nothing about them. The
+    `errors` list is the only trace, and it is the difference between "an
+    account is temporarily quiet" and "an account has been broken since its
+    token expired at lunchtime".
+    """
+    return isinstance(data, dict) and bool(data.get("errors"))
+
+
+def reschedule(p: Producer, data: Any, ok: bool) -> list[str]:
+    """Set the wait before this producer's next run. Call with `p.lock` held.
+
+    News resets the clock, anything else stretches it. A run brings news when it
+    succeeded, reported no errors of its own (unless `quiet_on_errors` is off),
+    and its watched data differs from the previous run's. Every other run —
+    a failed command, a still-expired token, a payload that has not moved — is
+    quiet, and each quiet run in a row multiplies the wait by `backoff` up to
+    `max_interval`.
+
+    Note the ordering: a failure clears the fingerprint, so the run that
+    recovers always counts as news and comes back at full speed rather than
+    having to earn its way down from the cap.
+    """
+    digest, problems = fingerprint(p, data) if ok else (None, [])
+    quiet_error = p.quiet_on_errors and has_producer_errors(data)
+    news = ok and not quiet_error and digest != p.fingerprint
+    p.fingerprint = digest
+    if news:
+        p.quiet_runs = 0
+        p.interval_now = p.interval
+    else:
+        p.quiet_runs += 1
+        if p.max_interval is not None:
+            stretched = round(p.interval_now * p.backoff)
+            p.interval_now = min(p.max_interval, max(p.interval, stretched))
+    return problems
 
 
 def run_producer(p: Producer) -> None:
@@ -213,6 +400,11 @@ def run_producer(p: Producer) -> None:
         p.error = error
         p.data = data
         p.raw = stdout
+        schedule_problems = reschedule(p, data, p.ok)
+        interval_now, quiet_runs = p.interval_now, p.quiet_runs
+
+    for problem in schedule_problems:
+        log(problem)
 
     # An indexed producer's problems are a property of the data, so they are
     # logged here — once per run — not on every `.txt` request, which would fill
@@ -228,13 +420,21 @@ def run_producer(p: Producer) -> None:
                 log(problem)
 
     status = "ok" if p.ok else f"FAIL ({error[:80]})"
-    log(f"{p.name}: {status} in {time.time() - started:.2f}s")
+    # Only mention the pace once it has actually moved: a producer on a fixed
+    # timer should not pay for this feature with a longer log line per run.
+    pace = ""
+    if interval_now != p.interval:
+        pace = f" [quiet x{quiet_runs}, next in {interval_now}s]"
+    log(f"{p.name}: {status} in {time.time() - started:.2f}s{pace}")
 
 
 def producer_loop(p: Producer, stop: threading.Event) -> None:
     while not stop.is_set():
         run_producer(p)
-        stop.wait(p.interval)
+        with p.lock:
+            wait = p.interval_now
+            p.next_run_at = time.time() + wait
+        stop.wait(wait)
 
 
 # --------------------------------------------------------------------------- #
@@ -254,7 +454,12 @@ def parse_iso(value: str) -> datetime | None:
 
 
 def humanize(seconds: float) -> str:
-    """Seconds until something, in the same register fumes itself uses."""
+    """A duration in the same register fumes itself uses.
+
+    Written for countdowns, hence "now" at zero, and reused for elapsed time —
+    a widget that has to render four digits of seconds is making the reader do
+    arithmetic to find out whether anything is wrong.
+    """
     if seconds <= 0:
         return "now"
     s = int(seconds)
@@ -477,11 +682,29 @@ def render_txt(p: Producer, snap: dict, now: datetime) -> str:
     A widget can read it to tell "the shape changed" from "the network failed".
     """
     age = -1 if snap["ran_at"] is None else int(time.time() - snap["ran_at"])
+    # -1, like `age_seconds`, for "not scheduled yet" — a one-shot `run` has no
+    # next run, and a widget can test for it without parsing an empty value.
+    due = (
+        -1
+        if snap["next_run_at"] is None
+        else max(0, int(snap["next_run_at"] - time.time()))
+    )
     pairs: list[tuple[str, str]] = [
         ("producer", p.name),
         ("ok", "1" if snap["ok"] else "0"),
         ("age_seconds", str(age)),
-        ("interval", str(p.interval)),
+        # The same number a reader can take in at a glance. Adaptive scheduling
+        # makes this earn its keep: a producer that has gone quiet is legitimately
+        # 1750 seconds old, which reads like a fault until it says "29m".
+        ("age", "-" if age < 0 else humanize(age)),
+        # The wait actually in effect, which is what a widget wants when it is
+        # deciding how stale its numbers are allowed to look. Equal to
+        # `base_interval` unless adaptive scheduling has stretched it.
+        ("interval", str(snap["interval"])),
+        ("base_interval", str(p.interval)),
+        ("quiet_runs", str(snap["quiet_runs"])),
+        ("next_run_in_seconds", str(due)),
+        ("next_run_in", "-" if due < 0 else humanize(due)),
         ("exit_code", "" if snap["exit_code"] is None else str(snap["exit_code"])),
         ("error", scalar(snap["error"])),
         ("served_at", now.isoformat(timespec="seconds")),
@@ -497,11 +720,20 @@ def render_txt(p: Producer, snap: dict, now: datetime) -> str:
 
 def render_json(p: Producer, snap: dict, now: datetime) -> bytes:
     age = None if snap["ran_at"] is None else int(time.time() - snap["ran_at"])
+    due = (
+        None
+        if snap["next_run_at"] is None
+        else max(0, int(snap["next_run_at"] - time.time()))
+    )
     body = {
         "producer": p.name,
         "ok": snap["ok"],
         "age_seconds": age,
-        "interval": p.interval,
+        "interval": snap["interval"],
+        "base_interval": p.interval,
+        "max_interval": p.max_interval,
+        "quiet_runs": snap["quiet_runs"],
+        "next_run_in_seconds": due,
         "exit_code": snap["exit_code"],
         "error": snap["error"],
         "served_at": now.isoformat(timespec="seconds"),
@@ -532,7 +764,9 @@ class Handler(BaseHTTPRequestHandler):
                         "producers": [
                             {
                                 "name": p.name,
-                                "interval": p.interval,
+                                "interval": p.snapshot()["interval"],
+                                "base_interval": p.interval,
+                                "max_interval": p.max_interval,
                                 "json": f"/p/{p.name}.json",
                                 "txt": f"/p/{p.name}.txt",
                             }
@@ -594,7 +828,10 @@ def cmd_serve(cfg: Config, verbose: bool = False) -> None:
     stop = threading.Event()
     for p in cfg.producers.values():
         threading.Thread(target=producer_loop, args=(p, stop), daemon=True).start()
-        log(f"producer {p.name!r} every {p.interval}s: {p.command}")
+        pace = f"every {p.interval}s"
+        if p.max_interval is not None:
+            pace += f" (quiet: x{p.backoff:g} up to {p.max_interval}s)"
+        log(f"producer {p.name!r} {pace}: {p.command}")
 
     Handler.config = cfg
     Handler.verbose = verbose
