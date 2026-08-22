@@ -24,10 +24,10 @@ Producer=fumes
 ; wsl-dash.toml -- polling faster only re-reads the same cache.
 RefreshSeconds=120
 
-; Geometry. W and PAD match the old single panel, so the blocks line up.
-W=344
+; Geometry. BarW = W - 2*PAD, so the bars inset by PAD on both sides.
+W=220
 PAD=16
-BarW=312
+BarW=188
 ; Vertical rhythm. The header ends at HeadH (the hairline); the first content
 ; line starts at RowTop; each line adds RowH; a row's bar sits BarInset below
 ; its line's top.
