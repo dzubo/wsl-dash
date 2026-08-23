@@ -6,8 +6,11 @@ Run directly, no test framework and no dependencies:
     python3 test_wsl_dash.py
 
 These are the functions that regress silently — an unsafe key that slips
-through `index_key`, or a malformed `index_by` spec that `parse_index_by`
-accepts — so they get a few plain asserts each.
+through `index_key`, a malformed `index_by` spec that `parse_index_by` accepts,
+or an adaptive schedule that stretches when it should not — so they get a few
+plain asserts each. The scheduler is in here because its failure mode is a
+dashboard that is quietly minutes out of date, which looks exactly like a
+dashboard that is fine.
 """
 
 from __future__ import annotations
@@ -22,7 +25,11 @@ from wsl_dash import (
     group_errors,
     group_indexed,
     index_key,
+    parse_backoff,
     parse_index_by,
+    parse_max_interval,
+    parse_watch,
+    reschedule,
 )
 
 
@@ -162,6 +169,113 @@ def check_errors_not_double_indexed() -> None:
     assert keys == ["data.by_account.claude.errors.count"], keys
 
 
+def check_parse_schedule() -> None:
+    assert parse_max_interval("x", None, 120) is None
+    assert parse_max_interval("x", 900, 120) == 900
+    assert parse_max_interval("x", 120, 120) == 120
+    # A cap under the base would make the first quiet run poll faster.
+    _expect_exit(parse_max_interval, "x", 60, 120)
+    _expect_exit(parse_max_interval, "x", "900", 120)
+    # TOML booleans are ints in Python; they are not intervals.
+    _expect_exit(parse_max_interval, "x", True, 120)
+
+    assert parse_backoff("x", None) == 2.0
+    assert parse_backoff("x", 1.5) == 1.5
+    # 1 reads like a configured multiplier but never moves the interval.
+    _expect_exit(parse_backoff, "x", 1)
+    _expect_exit(parse_backoff, "x", 0.5)
+    _expect_exit(parse_backoff, "x", True)
+
+    assert parse_watch("x", None) is None
+    assert parse_watch("x", "records") == ("records",)
+    assert parse_watch("x", ["records", "errors"]) == ("records", "errors")
+    _expect_exit(parse_watch, "x", [])
+    _expect_exit(parse_watch, "x", ["records", ""])
+    _expect_exit(parse_watch, "x", ["a b"])
+
+
+def _pace(p: Producer, payloads, ok=True) -> list[int]:
+    """Feed a producer a series of payloads, returning the interval after each."""
+    out = []
+    for payload in payloads:
+        reschedule(p, payload, ok)
+        out.append(p.interval_now)
+    return out
+
+
+def check_schedule_stretches_when_quiet() -> None:
+    p = Producer(
+        name="x", command="c", interval=120, max_interval=900, watch=("records",)
+    )
+    same = {"ts": "changes every run", "records": [{"pct": 1}]}
+    # The first run is news (nothing to compare against), then the payload sits
+    # still. `ts` moving must not count, or nothing ever stretches.
+    assert _pace(p, [same, dict(same, ts="b"), dict(same, ts="c"), dict(same, ts="d")]) == [
+        120,
+        240,
+        480,
+        900,
+    ]
+    # Capped, not climbing forever.
+    assert _pace(p, [dict(same, ts="e")]) == [900]
+    # ...and one real change drops it straight back to the base interval.
+    moved = {"ts": "f", "records": [{"pct": 2}]}
+    assert _pace(p, [moved]) == [120]
+
+
+def check_schedule_fixed_without_max_interval() -> None:
+    # No max_interval means the pre-adaptive behaviour, unchanged.
+    p = Producer(name="x", command="c", interval=120)
+    assert _pace(p, [{"a": 1}, {"a": 1}, {"a": 1}]) == [120, 120, 120]
+    assert p.quiet_runs == 2  # counted, just not acted on
+
+
+def check_schedule_quiets_on_errors() -> None:
+    # A producer that keeps working for other accounts exits 0 and reports the
+    # broken one in `errors`. Changing data must not hide that.
+    p = Producer(
+        name="x", command="c", interval=120, max_interval=600, watch=("records",)
+    )
+    broken = [
+        {"records": [{"pct": 1}], "errors": [{"message": "token expired"}]},
+        {"records": [{"pct": 2}], "errors": [{"message": "token expired"}]},
+    ]
+    assert _pace(p, broken) == [240, 480]
+
+    # ...unless the operator would rather keep the fast poll for the accounts
+    # that still work.
+    q = Producer(
+        name="x",
+        command="c",
+        interval=120,
+        max_interval=600,
+        watch=("records",),
+        quiet_on_errors=False,
+    )
+    assert _pace(q, broken) == [120, 120]
+
+
+def check_schedule_recovers_from_failure() -> None:
+    p = Producer(name="x", command="c", interval=120, max_interval=600)
+    payload = {"records": [{"pct": 1}]}
+    reschedule(p, payload, True)
+    assert p.interval_now == 120
+    # A failed run has no data at all: quiet, and it forgets the fingerprint.
+    reschedule(p, None, False)
+    reschedule(p, None, False)
+    assert p.interval_now == 480
+    # So the run that recovers is news even though the payload is unchanged —
+    # a producer that comes back must not have to earn its way down from the cap.
+    reschedule(p, payload, True)
+    assert p.interval_now == 120
+
+
+def check_watch_missing_path_is_reported() -> None:
+    p = Producer(name="x", command="c", interval=120, watch=("records", "nope"))
+    problems = reschedule(p, {"records": []}, True)
+    assert len(problems) == 1 and "nope" in problems[0], problems
+
+
 if __name__ == "__main__":
     check_index_key()
     check_parse_index_by()
@@ -169,4 +283,10 @@ if __name__ == "__main__":
     check_index_errors()
     check_group_errors()
     check_errors_not_double_indexed()
+    check_parse_schedule()
+    check_schedule_stretches_when_quiet()
+    check_schedule_fixed_without_max_interval()
+    check_schedule_quiets_on_errors()
+    check_schedule_recovers_from_failure()
+    check_watch_missing_path_is_reported()
     print("ok")

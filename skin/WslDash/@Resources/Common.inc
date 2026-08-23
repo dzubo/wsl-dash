@@ -94,13 +94,18 @@ StringIndex=1
 RegExpSubstitute=1
 Substitute="^$":"0"
 
+; How long ago the daemon last ran the producer, already humanized -- "now",
+; "12s", "29m". Reads the `age` key, not `age_seconds`: adaptive scheduling
+; lets a quiet producer legitimately reach four digits of seconds, which reads
+; like a fault until it says "29m". The lookbehind ends at `age=`, so it cannot
+; match `age_seconds=`.
 [mAge]
 Measure=WebParser
 Url=[mData]
-RegExp=(?<=\nage_seconds=)[^\n]*
+RegExp=(?<=\nage=)[^\n]*
 StringIndex=1
 RegExpSubstitute=1
-Substitute="^$":"0"
+Substitute="^$":"-"
 
 ; How many records this account has. Absent -- failed, or not configured --
 ; reads as 0. Reads the per-account index, not data.records.count, so one skin
@@ -241,7 +246,7 @@ FontWeight=600
 FontColor=#cMuted#
 AntiAlias=1
 MeasureName=mAge
-Text=%1s
+Text=%1
 
 [Rule]
 Meter=Image

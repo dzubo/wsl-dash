@@ -16,6 +16,24 @@ name = "fumes"
 command = "uv run --project ~/projects/fumes ~/projects/fumes/fumes.py --json"
 interval = 300   # seconds; fumes calls an undocumented API, so don't be greedy
 timeout = 30
+
+# Adaptive scheduling (optional). max_interval is the switch: without it the
+# producer runs on a fixed `interval` timer. With it, every run that brings no
+# news multiplies the wait by `backoff` up to the cap, and the first run that
+# does bring news drops it straight back to `interval`. Overnight, or while an
+# account's token is expired, nothing changes and nothing needs asking for at
+# the working-hours rate.
+max_interval = 1800
+backoff = 2.0
+# What counts as news. Omit to compare the whole payload -- which never matches
+# for a producer like fumes that stamps every run with a fresh `ts`, so name the
+# paths that carry meaning instead.
+watch = ["records", "errors"]
+# Whether a producer-reported error makes a run quiet. fumes exits 0 when only
+# some accounts fail and lists the rest in `errors`, so without this an expired
+# token looks like a healthy run. Set false to keep the fast poll for the
+# accounts that still work at the cost of hammering the one that doesn't.
+quiet_on_errors = true
 # Index a list of objects by one of its fields, so a widget can read a single
 # bucket (e.g. one account's rows) with a static regex. Adds
 # data.by_account.<value>.records.* keys (and, when the producer has an errors

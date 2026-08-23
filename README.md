@@ -7,6 +7,12 @@ and serves it over HTTP where a Windows widget can read it. Ships with a
 [Rainmeter](https://www.rainmeter.net/) skin that shows remaining AI provider
 limits via [`fumes`](https://github.com/dzubo/fumes).
 
+The schedule can adapt. Give a producer a `max_interval` and every run that
+brings no news — the data unchanged, the command failing, an account's token
+still expired — stretches the wait, while the first run that brings news drops
+it straight back. An endpoint worth polling every two minutes while you work is
+not worth it overnight (see [REFERENCE.md](REFERENCE.md#adaptive-scheduling)).
+
 Rainmeter's WebParser can't parse JSON, so each producer is also served as flat
 `key=value` lines — the format a widget can actually read. See
 [REFERENCE.md](REFERENCE.md) for the endpoint spec and the hard-won Rainmeter
@@ -56,7 +62,8 @@ a unit; click outside them to deselect.
 
 The per-account skins read the `data.by_account.*` keys, so `wsl-dash.toml`
 needs `index_by = "records:account"` on the `fumes` producer (the example
-already has it) and wsl-dash ≥ 0.1.0. Each account is a skin folder; after
+already has it) and wsl-dash ≥ 0.2.0, which is when the humanized `age` key
+the header reads was added. Each account is a skin folder; after
 adding a new account, copy the closest existing skin in the repo's
 `skin/WslDash/`, set its `Account` and `Provider` variables, splice it into the
 `GlueNext` chain (point the skin above it at the new config, and give the new
