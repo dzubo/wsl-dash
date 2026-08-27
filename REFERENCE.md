@@ -292,6 +292,12 @@ data arrives nothing fires to undo it — the row stays stuck. Set
 `IfConditionMode=1` to evaluate every update whenever an initial value can
 legitimately match one of the conditions.
 
+**`ClipString` with only a width wraps instead of truncating.** Give a String
+meter a width and no height and a long line does not end in an ellipsis — it
+flows onto a second line, and on a panel sized for one line it flows out
+through the bottom edge. The ellipsis appears only when the height is one a
+second line would break: clip to a box, not to a width.
+
 **`AlwaysOnTop=1` ("Topmost") is not enough — use `2` ("Stay topmost").** With
 `1`, Windows lets any other topmost window sit above the skin and silently
 demotes it; `2` makes Rainmeter re-assert topmost on a timer, so it wins the

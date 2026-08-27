@@ -37,6 +37,15 @@ RowH=42
 BarInset=34
 ; Height of the error line (the red rail + text) when an account fails.
 ErrH=14
+; The box the error text is drawn in, clipped to, and hovered over. The width
+; is the content width less the rail (3px) and the gap after it (10px). The
+; height has to be tall enough for one line of the 10pt face but short enough to
+; exclude a second: given room for two the message wraps onto a second line and
+; out through the bottom of the panel, and only a height a second line would
+; break turns the overflow into an ellipsis. It is not ErrH, which is the rail's
+; height and is deliberately shorter than a line.
+ErrW=(#BarW# - 13)
+ErrClipH=20
 Bottom=15
 ; The most rows one account can occupy; extra rows are silently dropped (there
 ; is no way to signal the truncation from a skin). Bump this and copy more
@@ -131,6 +140,15 @@ RegExpSubstitute=1
 ; An HTTP failure is the common case; keep just the status so the line reads
 ; "HTTP 429" rather than a URL that never fits. Other messages pass through.
 Substitute="^(HTTP \d+).*$":"\1"
+
+; The same message untouched, for the tooltip: the line above is shortened for
+; the panel, and this is where the part that was dropped -- the URL behind an
+; "HTTP 429", the tail of a long message -- is still readable.
+[mErrFull]
+Measure=WebParser
+Url=[mData]
+RegExp=(?<=\ndata\.by_account\.#Account#\.errors\.0\.message=)[^\n]*
+StringIndex=1
 
 ; Header dot: offline beats producer error beats fine. An account-level failure
 ; (HTTP 429) is NOT reflected here -- that is the error line's red rail below;
@@ -258,7 +276,8 @@ SolidColor=#cRule#
 
 ; The error line: a red rail and the account's error (e.g. "HTTP 429"). Shown
 ; by [mHasErr] only when the account failed. This is the one new colour, and it
-; is status used as status, not identity.
+; is status used as status, not identity. The text is clipped to the panel and
+; carries the whole message in its tooltip.
 [ErrRail]
 Meter=Image
 Group=Err
@@ -277,5 +296,23 @@ FontFace=#Face#
 FontSize=10
 FontColor=#cRed#
 AntiAlias=1
+; A fixed box, and the string clipped to it: DynamicWindowSize=1 sizes the
+; window to its meters, so a long message left unclipped draws its tail outside
+; the panel shape and off the side of the stack. The box is also what the mouse
+; hovers for the tooltip, so it is given here rather than left to the text --
+; the meter starts hidden, and a meter that has never been drawn has no size of
+; its own to be hovered over. See ErrW / ErrClipH above for the two numbers.
+W=#ErrW#
+H=#ErrClipH#
+ClipString=1
+; A backdrop, invisible at alpha 1, so the whole box and not just the glyphs is
+; a hover target -- the idiom from the tooltip page of Rainmeter's own manual.
+SolidColor=0,0,0,1
+; What the clipping dropped is still there on hover. The section variable needs
+; DynamicVariables=1, and the width makes a long message wrap into a block
+; instead of one line running the width of the screen.
+ToolTipText=[mErrFull]
+ToolTipWidth=280
+DynamicVariables=1
 MeasureName=mErr
 Text=%1
