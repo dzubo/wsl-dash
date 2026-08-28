@@ -219,6 +219,45 @@ there is no next run, as with a one-shot `wsl-dash run`). `interval` keeping its
 name and changing to mean "in effect" is deliberate: on a fixed timer the two
 are identical, so no existing consumer sees a difference.
 
+## The compact variant
+
+`WslDash\Fumes-compact` is a second, experimental presentation of the same
+fumes data: the "2+4+6" compression — all accounts merged into **one panel**
+(one header, one download), **one-line rows** where the bar is the row's
+20px background and the text reads `label | $spend | countdown`, and
+**squeezed constants** (PAD 12, HeadH 32, Bottom 10). Tier thresholds are
+shifted up so green dominates longer: **green under 80, amber 80–94, red at
+95 and up**, applied to both the row fill and the percentage text. Accounts
+are fixed in the skin's `[Variables]` as `A1..A3`; the meter blocks in
+`@Resources/CompactRows.inc` are generated (see `tools/gen_compact_rows.py`)
+and hold no measures.
+
+It exists because the classic architecture does not scale to a merged panel.
+One WebParser child measure per field would need ~100 children, and this
+Rainmeter build (4.5.26) **silently stops parsing WebParser children past
+roughly the first dozen** — values come back empty with no log line, while
+the same measures work when defined earlier in the file. The classic skins
+stay under the limit (36 children); the compact panel therefore keeps a
+single `[mData]` parent and hands the text to **one Lua script**
+(`@Resources/compact.lua`) that parses every record and pushes text, colours
+and fill widths into the meters with bangs.
+
+Three more findings from wiring that up, all verified against 4.5.26:
+
+**The Script measure's file option is `ScriptFile`, not `LuaFile`.** The old
+name is silently ignored and the measure logs `Script: File not valid` no
+matter which path you give the old name.
+
+**`SKIN` is not assigned while the Lua file loads.** Rainmeter attaches it to
+the script table after `dofile`, so any top-level `SKIN:` call fails the load
+with the same `File not valid` message. Read variables in `Initialize()`, not
+at the top of the file.
+
+**Refreshing a skin with a Script measure can crash this build**
+(access violation in Rainmeter.dll, intermittent — a fresh start of the same
+skin is fine). After deploying the compact skin, restart Rainmeter instead of
+`!RefreshApp`; the classic skins are unaffected either way.
+
 ## Versioning
 
 The three version numbers in play are independent, and that is a decision
