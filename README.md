@@ -52,7 +52,10 @@ account — `WslDash\Fumes-opencode`, `WslDash\Fumes-claude`,
 `WslDash\Fumes-claude-a`, one window per account. An experimental
 single-panel variant that merges all accounts into one compressed window is
 also included: `WslDash\Fumes-compact` (see REFERENCE.md — note its deploy
-caveat: restart Rainmeter rather than refreshing it).
+caveat: restart Rainmeter rather than refreshing it):
+
+![The compact panel — all accounts merged into one window, with the per-account
+error rail at the bottom](screenshots/fumes-compact.png)
 
 The three windows behave as one panel. Position the top skin and the other two
 follow: each skin parks the next one directly beneath itself, so the stack
