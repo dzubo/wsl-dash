@@ -49,7 +49,10 @@ the repo (scoped to `WslDash`, so your other skins are untouched) — if you
 still have the retired single-panel `WslDash\Fumes` loaded, it disappears after
 the next deploy. In Rainmeter, run `!RefreshApp`, then load one skin per
 account — `WslDash\Fumes-opencode`, `WslDash\Fumes-claude`,
-`WslDash\Fumes-claude-a`, one window per account.
+`WslDash\Fumes-claude-a`, one window per account. An experimental
+single-panel variant that merges all accounts into one compressed window is
+also included: `WslDash\Fumes-compact` (see REFERENCE.md — note its deploy
+caveat: restart Rainmeter rather than refreshing it).
 
 The three windows behave as one panel. Position the top skin and the other two
 follow: each skin parks the next one directly beneath itself, so the stack
