@@ -18,6 +18,9 @@ Rainmeter's WebParser can't parse JSON, so each producer is also served as flat
 [REFERENCE.md](REFERENCE.md) for the endpoint spec and the hard-won Rainmeter
 gotchas.
 
+![The compact panel — all accounts merged into one window, with the per-account
+error rail at the bottom](screenshots/fumes-compact.png)
+
 ## Quick start
 
 Python 3.12+, no dependencies.
@@ -52,10 +55,7 @@ account — `WslDash\Fumes-opencode`, `WslDash\Fumes-claude`,
 `WslDash\Fumes-claude-a`, one window per account. An experimental
 single-panel variant that merges all accounts into one compressed window is
 also included: `WslDash\Fumes-compact` (see REFERENCE.md — note its deploy
-caveat: restart Rainmeter rather than refreshing it):
-
-![The compact panel — all accounts merged into one window, with the per-account
-error rail at the bottom](screenshots/fumes-compact.png)
+caveat: restart Rainmeter rather than refreshing it).
 
 The three windows behave as one panel. Position the top skin and the other two
 follow: each skin parks the next one directly beneath itself, so the stack
