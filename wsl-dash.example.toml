@@ -39,6 +39,6 @@ quiet_on_errors = true
 # data.by_account.<value>.records.* keys (and, when the producer has an errors
 # list, data.by_account.<value>.errors.*) to the .txt form only; the .json
 # endpoint and the positional data.records.N.* keys are untouched. The shipped
-# per-account Fumes skins (Fumes-opencode, Fumes-claude, ...) read these keys,
-# so leave this on unless you write a widget that reads data.records.*.
+# Fumes-dense skin reads these keys, so leave this on unless you write a widget
+# that reads data.records.*.
 index_by = "records:account"

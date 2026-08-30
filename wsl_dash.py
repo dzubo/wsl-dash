@@ -810,7 +810,8 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:
         # Silent by default — a widget polling every 2 minutes would fill the
         # journal. `serve --verbose` turns it on, which is the fastest way to
-        # tell "my skin can't reach the daemon" from "my regex is wrong".
+        # tell "my skin can't reach the daemon" from "my skin is reading the
+        # wrong keys".
         if self.verbose:
             log(f"{self.address_string()} {fmt % args}")
 

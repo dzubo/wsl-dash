@@ -102,17 +102,17 @@ configured". Two caveats:
 - **The producer must still exit 0.** A non-zero exit means "producer failed":
   wsl-dash serves only `ok`, `exit_code` and `error`, and none of the `data.*`
   keys — including the errors index — are emitted. `fumes` currently exits 1
-  when *every* account fails, so a total outage collapses the per-account skins
-  to a bare header; a single-account failure (the common case) still renders.
+  when *every* account fails, so a total outage collapses the panel to a bare
+  header; a single-account failure (the common case) still renders.
 - **An account is expected to have records *or* an error, never both.** The
-  per-account skin sizes its panel for one or the other, so a producer that
-  emits both for one account would draw them on top of each other. Today's
+  skin draws a failed account's error strip in place of its rows, so a
+  producer that emits both for one account would show only the error. Today's
   `fumes` raises before emitting both.
 
-The skins also read three fields this section does not otherwise name:
-`records[].unit` and `records[].used` (the spend line; shown only when `unit` is
-`usd`) and `errors[].account`/`errors[].message` (the error line). If a producer
-does not emit those, the two lines silently never appear.
+The skin also reads three fields this section does not otherwise name:
+`records[].unit` and `records[].used` (the spend column; shown only when `unit`
+is `usd`) and `errors[].account`/`errors[].message` (the error strip). If a
+producer does not emit those, the two silently never appear.
 
 A widget then reads a **static** path with the key as a plain `#Variable#` — no
 `DynamicVariables`, no computed indices:
@@ -219,30 +219,31 @@ there is no next run, as with a one-shot `wsl-dash run`). `interval` keeping its
 name and changing to mean "in effect" is deliberate: on a fixed timer the two
 are identical, so no existing consumer sees a difference.
 
-## The compact variant
+## The skin
 
-`WslDash\Fumes-compact` is a second, experimental presentation of the same
-fumes data: the "2+4+6" compression — all accounts merged into **one panel**
-(one header, one download), **one-line rows** where the bar is the row's
-20px background and the text reads `label | $spend | countdown`, and
-**squeezed constants** (PAD 12, HeadH 32, Bottom 10). Tier thresholds are
-shifted up so green dominates longer: **green under 80, amber 80–94, red at
-95 and up**, applied to both the row fill and the percentage text. Accounts
-are fixed in the skin's `[Variables]` as `A1..A3`; the meter blocks in
-`@Resources/CompactRows.inc` are generated (see `tools/gen_compact_rows.py`)
-and hold no measures.
+`WslDash\Fumes-dense` is the shipped presentation of the fumes data: the
+"all combined" compression — **one card, hairline dividers between account
+sections** (no gaps — consecutive sections sit `2*SecPad+1` apart), **one-line
+rows whose bar is a 2px hairline beneath the text**, and **two-tone columns**
+— white label clipped at a fixed 84px, muted `$spend | countdown` beside it,
+tier-coloured semibold percentage right-aligned. The account header carries a
+small dot coloured by that account's *worst row tier* (red on error), and an
+account error renders as a red-tinted rounded strip with a dot. Geometry:
+PAD 10, RowH 19, BarOff 15, HeadH 24 — the whole live panel runs ~170px at
+five records.
 
-It exists because the classic architecture does not scale to a merged panel.
-One WebParser child measure per field would need ~100 children, and this
-Rainmeter build (4.5.26) **silently stops parsing WebParser children past
-roughly the first dozen** — values come back empty with no log line, while
-the same measures work when defined earlier in the file. The classic skins
-stay under the limit (36 children); the compact panel therefore keeps a
-single `[mData]` parent and hands the text to **one Lua script**
-(`@Resources/compact.lua`) that parses every record and pushes text, colours
-and fill widths into the meters with bangs.
+The merged architecture exists because the obvious one does not scale to a
+single panel: one WebParser child measure per field would need ~100 children,
+and this Rainmeter build (4.5.26) **silently stops parsing WebParser children
+past roughly the first dozen** — values come back empty with no log line,
+while the same measures work when defined earlier in the file. The skin
+therefore keeps a single `[mData]` parent and hands the text to **one Lua
+script** (`@Resources/dense.lua`) that parses every record and pushes text,
+colours and fill widths into the meters with bangs. Accounts are fixed in the
+skin's `[Variables]` as `A1..A3`; the meter blocks in `@Resources/DenseRows.inc`
+are generated (`tools/gen_dense_rows.py`) and hold no measures.
 
-Three more findings from wiring that up, all verified against 4.5.26:
+Three findings from wiring that up, all verified against 4.5.26:
 
 **The Script measure's file option is `ScriptFile`, not `LuaFile`.** The old
 name is silently ignored and the measure logs `Script: File not valid` no
@@ -255,8 +256,18 @@ at the top of the file.
 
 **Refreshing a skin with a Script measure can crash this build**
 (access violation in Rainmeter.dll, intermittent — a fresh start of the same
-skin is fine). After deploying the compact skin, restart Rainmeter instead of
-`!RefreshApp`; the classic skins are unaffected either way.
+skin is fine). After deploying the skin, restart Rainmeter instead of
+`!RefreshApp`.
+
+Colour tiers: **green under 80, amber 80–94, red at 95 and up**, on the raw
+percentage. The percentage text carries its tier colour in all three tiers,
+the hairline fill uses low-alpha `cLine*` variants so the line stays
+subordinate to the text, and a display-rounded "80%" on a 79.x row is still
+green — the text rounds, the tier does not. Two geometry details worth
+keeping if this file is ever retuned: the fill width scales against `BarW`
+(content width) — the hairline is inset by `PAD` — and `BarOff` is 15, not
+14, because at 14 the track sits in the 9pt glyphs' descender box and reads
+as an underline.
 
 ## Versioning
 
@@ -375,9 +386,9 @@ The first cut was correct and ugly. Three causes, worth remembering:
   edge. The panel is now a `Meter=Shape` rounded rectangle with a hairline
   stroke — the one thing that makes a Rainmeter skin look designed rather than
   assembled.
-- **No hierarchy.** Everything was 9pt in two greys. Rows are now two lines:
-  label and a 13pt semibold percentage on top, account and countdown small and
-  muted beneath, bar underneath.
+- **No hierarchy.** Everything was 9pt in two greys. Rows are one line each:
+  a white label, muted `$spend | countdown` beside it, a semibold
+  tier-coloured percentage right-aligned, and a hairline bar beneath the text.
 
 Numbers are also honest now: `<1%` for a live-but-tiny value rather than a flat
 `0%`, and `--` for uncapped pay-as-you-go rows, which have a null percentage
@@ -386,21 +397,15 @@ rather than a zero one.
 ## Writing your own widget
 
 Add a producer to `wsl-dash.toml`, restart, and check `/p/<name>.txt` to see
-your key names. Then copy a `Fumes-<account>` skin folder and change the
-lookbehinds. The shared foundation is `@Resources/Common.inc` (palette, geometry,
-the download) and `@Resources/Rows.inc` (the unrolled row blocks, keyed on the
-skin's `#Account#` variable); a per-account skin is just a few variables and two
-`@Include` lines. A third, `@Resources/Glue.inc`, is optional and included only
-by a skin that has another one beneath it: it watches this skin's own position
-and panel height and `!Move`s the config named in `GlueNext` to sit under it,
-`GlueGap` pixels down, which is what keeps the three windows reading as a
-single panel. It stacks on `[mHeight]` rather than `#CURRENTCONFIGHEIGHT#`
-deliberately — the *window* stays as tall as the full `MaxRows` block because
-the hidden row meters still extend it, so a short panel trails a stretch of
-transparent window that would otherwise show up as a gap in the stack. The chain is
-one hop per skin because `DynamicWindowSize=1` makes a panel's height depend on
-its account's row count, and a skin can only read its own height — so each skin
-positions its immediate follower rather than one skin placing all the rest. The row blocks are unrolled because Rainmeter has no loops;
-`Rows.inc` is six copies of the same block, so edit row 0 and propagate the edit
-to rows 1-5. To show more rows, copy the last block, bump every index in it, and
-raise `MaxRows` in `Common.inc`.
+your key names. Then start from `WslDash\Fumes-dense` and adapt it. The shared
+foundation is `@Resources/Dense.inc` (palette, geometry, the one `[mData]`
+download and the `[mScript]` script measure) and `@Resources/dense.lua` — the
+only place that knows the flat format, reading the parent's downloaded text
+and pushing text, colours and fill widths into the meters with bangs. The
+meter blocks in `@Resources/DenseRows.inc` hold no measures and are generated
+(`tools/gen_dense_rows.py`): the blocks are unrolled because Rainmeter has no
+loops, so the generator is the loop — change its `ACCOUNTS`/`MAXROWS` (keeping
+it in step with the skin's `A1..A3` variables) and regenerate rather than
+hand-editing. A widget for a different producer is the same shape: point
+`Producer` at it, teach `dense.lua` your keys, and regenerate the row blocks
+for your values.

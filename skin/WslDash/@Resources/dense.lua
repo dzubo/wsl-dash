@@ -1,34 +1,39 @@
--- compact.lua -- the whole data layer for the merged Fumes-compact panel.
+-- dense.lua -- the data layer for the merged Fumes-dense panel.
 --
--- The classic skins use one WebParser child measure per field; with three
--- accounts x six rows that would be ~100 children, and past roughly a dozen
--- this Rainmeter build silently stops parsing them (values come back empty
--- with no log line). So the compact skin keeps a single WebParser parent
--- ([mData] in Compact.inc) and this script does all the parsing itself,
--- reading the parent's downloaded text and pushing values into the meters
--- with bangs. One parser, no child measures.
+-- The merged panel keeps a single WebParser parent ([mData] in Dense.inc)
+-- and this script does all the parsing: past roughly a dozen WebParser
+-- children this Rainmeter build silently stops parsing them, so the script
+-- reads the parent's downloaded text and pushes values into the meters with
+-- bangs. One parser, no child measures.
+--
+-- What makes the dense panel dense: a row's bar is a 2px hairline beneath
+--   the text, not the row background; the fill width therefore scales
+--   against BarW (content width), not the panel width.
+--   * rows are two-tone: white label, muted details, tier-coloured percentage
+--   * account sections are separated by hairline dividers, shown only when
+--     both neighbouring sections rendered something
+--   * each account's prefix dot shows the account's worst tier (red on error)
 --
 -- Re-parses only when the downloaded text changes; the producer's own
 -- adaptive schedule means most ticks are a string compare and a return.
 
--- Tuning knobs read from Compact.inc's [Variables] so the skin stays the
+-- Tuning knobs read from Dense.inc's [Variables] so the skin stays the
 -- single source of truth. SKIN is not assigned until after the script file
 -- loads, so nothing here touches it at load: Initialize() reads the
 -- variables once; Update() re-reads the download when it changes.
 local MAXROWS = 6
-local PAD, W, BARW, HEADH, ROWH, PREFIXH, BLOCKGAP, ERRH, BOTTOM
+local PAD, W, BARW, HEADH, ROWH, PREFIXH, SECPAD, ERRH, BOTTOM
 local ACCOUNTS = {}
 
--- Tier palette: green under 80, amber 80-94, red at 95 and up. The fill
--- colours carry the row-background alpha; text stays white in the green tier
--- exactly like the classic skin.
+-- Tier thresholds: green under 80, amber 80-94, red at 95 and up, on the
+-- raw percentage (a display-rounded "80%" on a 79.x row stays green).
+-- text = percentage glyphs, line = the hairline fill (translucent),
+-- dot = the account prefix dot (solid).
 local TIERS = {
-  { max = 80, fill = 'cFillGreen', text = 'cText' },
-  { max = 95, fill = 'cFillAmber', text = 'cAmber' },
-  { max = math.huge, fill = 'cFillRed', text = 'cRed' },
+  { max = 80,          text = 'cGreen', line = 'cLineGreen', dot = 'cGreen' },
+  { max = 95,          text = 'cAmber', line = 'cLineAmber', dot = 'cAmber' },
+  { max = math.huge,   text = 'cRed',   line = 'cLineRed',   dot = 'cRed' },
 }
-
-local lastData = nil
 
 local lastData = nil
 
@@ -44,7 +49,7 @@ local function init()
   HEADH = tonumber(SKIN:GetVariable('HeadH'))
   ROWH = tonumber(SKIN:GetVariable('RowH'))
   PREFIXH = tonumber(SKIN:GetVariable('PrefixH'))
-  BLOCKGAP = tonumber(SKIN:GetVariable('BlockGap'))
+  SECPAD = tonumber(SKIN:GetVariable('SecPad'))
   ERRH = tonumber(SKIN:GetVariable('ErrH'))
   BOTTOM = tonumber(SKIN:GetVariable('Bottom'))
   ACCOUNTS = { SKIN:GetVariable('A1'), SKIN:GetVariable('A2'), SKIN:GetVariable('A3') }
@@ -74,19 +79,24 @@ local function tierFor(pct)
   return TIERS[#TIERS]
 end
 
-local function setRow(i, k, line, pctText, fillColor, textColor, fillW)
+local function setRow(i, k, label, det, pctText, textColor, lineColor, fillW)
   local m = string.format('A%dR%d', i, k)
-  bang(string.format('!SetOption %s Text "%s"', m .. 'Text', esc(line)))
+  bang(string.format('!SetOption %s Text "%s"', m .. 'Text', esc(label)))
+  bang(string.format('!SetOption %s Text "%s"', m .. 'Det', esc(det)))
   bang(string.format('!SetOption %s Text "%s"', m .. 'Pct', esc(pctText)))
   bang(string.format('!SetOption %s FontColor "%s"', m .. 'Pct', var(textColor)))
   bang(string.format('!SetOption %s W %d', m .. 'Fill', fillW))
-  bang(string.format('!SetOption %s SolidColor "%s"', m .. 'Fill', var(fillColor)))
+  bang(string.format('!SetOption %s SolidColor "%s"', m .. 'Fill', var(lineColor)))
 end
 
 local function hideRow(i, k)
-  local m = string.format('A%dR%d', i, k)
-  setRow(i, k, '', '', 'cTrack', 'cText', 0)
-  bang('!HideMeterGroup ' .. m)
+  setRow(i, k, '', '', '', 'cFaint', 'cTrack', 0)
+  bang('!HideMeterGroup ' .. string.format('A%dR%d', i, k))
+end
+
+local function setPrefixDot(i, colorVar)
+  bang(string.format('!SetOption A%dPDot Shape "Rectangle 0.5,0.5,4,4,1.5 | Fill Color %s"',
+    i, var(colorVar)))
 end
 
 function Update()
@@ -112,8 +122,9 @@ function Update()
   end
   bang('!SetOption Age Text "' .. esc(age) .. '"')
 
-  local tops = { HEADH + 7, 0, 0 }
+  local tops = { HEADH + SECPAD, 0, 0 }
   local blockH = { 0, 0, 0 }
+  local hasContent = { false, false, false }
 
   for i, acct in ipairs(ACCOUNTS) do
     local base = 'data.by_account.' .. acct
@@ -121,24 +132,34 @@ function Update()
     local errCnt = tonumber(field(data, base .. '.errors.count')) or 0
     local errMsg = field(data, base .. '.errors.0.message')
     local hasErr = errCnt > 0
+    hasContent[i] = (cnt > 0) or hasErr
 
-    -- Account prefix line: visible when the account produced anything.
-    if cnt > 0 or hasErr then
+    -- Account section header: visible when the account produced anything.
+    if hasContent[i] then
       bang('!ShowMeterGroup A' .. i .. 'Head')
     else
       bang('!HideMeterGroup A' .. i .. 'Head')
     end
 
-    -- Error line in place of rows; the full message rides the tooltip.
+    -- Hairline divider above the section: only when both neighbours render.
+    if i > 1 and hasContent[i] and hasContent[i - 1] then
+      bang('!ShowMeterGroup Div' .. i)
+    else
+      bang('!HideMeterGroup Div' .. i)
+    end
+
+    -- Error strip in place of rows; the full message rides the tooltip.
     if hasErr then
       bang(string.format('!SetOption A%dErrText Text "%s"', i, esc(errMsg)))
       bang(string.format('!SetOption A%dErrText ToolTipText "%s"', i, esc(errMsg)))
       bang('!ShowMeterGroup E' .. i)
+      setPrefixDot(i, 'cRed')
     else
       bang('!HideMeterGroup E' .. i)
     end
 
     local rows = math.min(cnt, MAXROWS)
+    local worstPct
     for k = 0, MAXROWS - 1 do
       if k < rows and not hasErr then
         local rk = base .. '.records.' .. k
@@ -148,49 +169,67 @@ function Update()
         local used = tonumber(field(data, rk .. '.used')) or 0
         local reset = field(data, rk .. '.resets_at_in')
 
-        -- One-line row: "label | $spend | countdown". Spend only on usd
-        -- rows; the countdown is dropped when empty; "|" because the skin
-        -- files must stay ASCII.
-        local parts = { label }
+        -- Details column: "$spend | countdown". Spend only on usd rows; the
+        -- countdown is dropped when empty; "|" because skin files are ASCII.
+        local parts = {}
         if unit == 'usd' then
           table.insert(parts, string.format('$%.2f', used))
         end
         if reset ~= '' then table.insert(parts, reset) end
-        local line = table.concat(parts, ' | ')
+        local det = table.concat(parts, ' | ')
 
-        -- Percentage text: honest forms, as in the classic skin.
+        -- Percentage text: honest forms (<1% rather than 0%, -- uncapped).
         local pct = tonumber(pctRaw)
-        local pctText, fillColor, textColor, fillW
+        local pctText, tier, fillW
         if pct == nil then
-          pctText, fillColor, textColor, fillW = '--', 'cTrack', 'cFaint', 0
+          pctText, tier, fillW = '--', nil, 0
         else
-          local tier = tierFor(pct)
-          fillColor = tier.fill
-          textColor = tier.text
+          tier = tierFor(pct)
+          worstPct = math.max(worstPct or 0, pct)
           if pct > 0 and pct < 1 then
             pctText = '<1%'
           else
             pctText = string.format('%d%%', math.floor(pct + 0.5))
           end
-          fillW = math.floor(W * math.min(math.max(pct, 0), 100) / 100 + 0.5)
+          fillW = math.floor(BARW * math.min(math.max(pct, 0), 100) / 100 + 0.5)
         end
 
         bang('!ShowMeterGroup A' .. i .. 'R' .. k)
-        setRow(i, k, line, pctText, fillColor, textColor, fillW)
+        setRow(i, k, label, det, pctText,
+          tier and tier.text or 'cFaint',
+          tier and tier.line or 'cTrack',
+          fillW)
       else
         hideRow(i, k)
       end
     end
 
-    blockH[i] = PREFIXH + (hasErr and ERRH or (rows * ROWH))
+    -- The section dot shows the account's worst row tier; an error is red.
+    if not hasErr then
+      if worstPct then
+        setPrefixDot(i, tierFor(worstPct).dot)
+      else
+        setPrefixDot(i, 'cFaint')
+      end
+    end
+
+    if hasContent[i] then
+      blockH[i] = PREFIXH + (hasErr and ERRH or (rows * ROWH))
+    else
+      blockH[i] = 0
+    end
     if i < #ACCOUNTS then
-      tops[i + 1] = tops[i] + blockH[i] + BLOCKGAP
+      tops[i + 1] = tops[i] + blockH[i] + (2 * SECPAD + 1)
     end
   end
 
-  local height = tops[#ACCOUNTS] + blockH[#ACCOUNTS] + BOTTOM
+  local lastBottom = HEADH + SECPAD
+  for i = 1, #ACCOUNTS do
+    lastBottom = math.max(lastBottom, tops[i] + blockH[i])
+  end
+  local height = lastBottom + BOTTOM
   local shape = string.format(
-    'Rectangle 0.5,0.5,%d,%d,10 | Fill Color %s | StrokeWidth 1 | Stroke Color %s',
+    'Rectangle 0.5,0.5,%d,%d,8 | Fill Color %s | StrokeWidth 1 | Stroke Color %s',
     W - 1, height - 1, var('cPanel'), var('cEdge'))
   bang('!SetOption Panel Shape "' .. shape .. '"')
 

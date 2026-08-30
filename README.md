@@ -18,8 +18,9 @@ Rainmeter's WebParser can't parse JSON, so each producer is also served as flat
 [REFERENCE.md](REFERENCE.md) for the endpoint spec and the hard-won Rainmeter
 gotchas.
 
-![The compact panel — all accounts merged into one window, with the per-account
-error rail at the bottom](screenshots/fumes-compact.png)
+![The dense panel — all accounts merged into one window: hairline bars beneath
+each row, dividers between accounts and tier-coloured
+percentages](screenshots/fumes-dense.png)
 
 ## Quick start
 
@@ -48,35 +49,24 @@ Deploy the skin and load it:
 `deploy.sh` reads the real skins path out of `Rainmeter.ini` rather than
 guessing — Windows often redirects `Documents` into OneDrive. Use `--watch` to
 re-copy on every edit. It also prunes `WslDash` skins that no longer exist in
-the repo (scoped to `WslDash`, so your other skins are untouched) — if you
-still have the retired single-panel `WslDash\Fumes` loaded, it disappears after
-the next deploy. In Rainmeter, run `!RefreshApp`, then load one skin per
-account — `WslDash\Fumes-opencode`, `WslDash\Fumes-claude`,
-`WslDash\Fumes-claude-a`, one window per account. An experimental
-single-panel variant that merges all accounts into one compressed window is
-also included: `WslDash\Fumes-compact` (see REFERENCE.md — note its deploy
-caveat: restart Rainmeter rather than refreshing it).
+the repo (scoped to `WslDash`, so your other skins are untouched) — any older
+wsl-dash skin still loaded (the retired single-panel `WslDash\Fumes`, the
+per-account windows) disappears after the next deploy. In Rainmeter, run
+`!RefreshApp`, then load `WslDash\Fumes-dense`: one window with every account
+merged — hairline bars beneath one-line rows, dividers between account
+sections, tier-coloured percentages. See REFERENCE.md for the skin's
+anatomy — and note the deploy caveat there: restart Rainmeter rather than
+refreshing it.
 
-The three windows behave as one panel. Position the top skin and the other two
-follow: each skin parks the next one directly beneath itself, so the stack
-re-forms when you drag it or when a panel grows a row (`@Resources/Glue.inc`,
-top to bottom: `opencode`, `claude`, `claude-a`; `GlueGap` sets the seam, 5px
-by default, 0 for flush). To move the stack by hand
-without one skin leading, CTRL+ALT-click any panel — all three are in the same
-`DragGroup`, so they select together and drag, or nudge with the arrow keys, as
-a unit; click outside them to deselect.
-
-The per-account skins read the `data.by_account.*` keys, so `wsl-dash.toml`
-needs `index_by = "records:account"` on the `fumes` producer (the example
+The skin reads the `data.by_account.*` keys, so `wsl-dash.toml` needs
+`index_by = "records:account"` on the `fumes` producer (the example
 already has it) and wsl-dash ≥ 0.2.0, which is when the humanized `age` key
-the header reads was added. Each account is a skin folder; after
-adding a new account, copy the closest existing skin in the repo's
-`skin/WslDash/`, set its `Account` and `Provider` variables, splice it into the
-`GlueNext` chain (point the skin above it at the new config, and give the new
-skin a `GlueNext` and an `@Include3` unless it is now the bottom one), and run
-`!RefreshApp` so Rainmeter discovers the new folder. Add it in the repo, not
-in Rainmeter's Skins folder — `deploy.sh` mirrors `skin/` and prunes `WslDash`
-folders it doesn't find there.
+the header reads was added. Accounts are fixed in the skin's `[Variables]` as
+`A1..A3`; to add a fourth, add its name there, generate a matching block in
+`@Resources/DenseRows.inc` with `tools/gen_dense_rows.py`, and run
+`!RefreshApp`. Edit in the repo, not in Rainmeter's Skins folder —
+`deploy.sh` mirrors `skin/` and prunes `WslDash` folders it doesn't find
+there.
 
 ### As a service
 
@@ -89,7 +79,7 @@ loginctl enable-linger "$USER"     # so it survives with no login session
 
 ## Status
 
-v0.1. One producer, three per-account skins, deliberately. A plugin API, extra
+v0.1. One producer, one dense skin, deliberately. A plugin API, extra
 transports, a widget library, and `.rmskin` packaging all wait for a real
 second use case.
 

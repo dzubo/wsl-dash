@@ -79,8 +79,9 @@ fi
 
 copy_once() {
     cp -r "$repo_skin"/. "$dest"/
-    # Prune skins that were retired from the repo (e.g. the old single-panel
-    # Fumes) so a stale copy doesn't keep running next to the new ones. Scoped
+    # Prune skins that were retired from the repo (e.g. the per-account
+    # Fumes windows, dropped when the merged dense panel became the only
+    # skin) so a stale copy doesn't keep running next to the new ones. Scoped
     # to the WslDash config: $dest is the SkinPath root, which also holds the
     # user's other skins (illustro, ...), so those must never be touched.
     local d
